@@ -19,6 +19,15 @@ export const DEFAULT_SETTINGS = {
   reminderTime: '07:00', // used in the calendar export
   name: '',
   onboarded: false,
+  tz: '',                // device time zone, so the Telegram bot sends at your local time
+  // Telegram bot (runs as a GitHub Action in the private backup repo, reads this file)
+  tgOn: false,
+  tgDaily: true, tgDailyTime: '07:00',   // reminder on training days
+  tgRecap: true,                         // summary after each logged workout
+  tgWeekly: true, tgWeeklyDay: 6, tgWeeklyTime: '20:00', // 0 = Monday … 6 = Sunday
+  tgMonthly: true,                       // on the 1st, at the weekly report time
+  // Apple Health via Shortcuts
+  healthOn: false, healthShortcut: 'Ironbook to Health',
   updatedAt: 0,
 };
 

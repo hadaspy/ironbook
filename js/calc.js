@@ -18,6 +18,21 @@ export const fmtDuration = (ms) => {
 };
 export const fmtClock = (sec) => { sec = Math.max(0, Math.round(sec)); return `${Math.floor(sec / 60)}:${pad(sec % 60)}`; };
 
+// ---------- activity types (custom logs) ----------
+// key, label, Apple Health workout type (used by the Shortcuts bridge), MET for the calorie estimate, has distance
+export const ACTIVITIES = [
+  ['strength', 'Strength', 'Traditional Strength Training', 5, false],
+  ['run', 'Run', 'Running', 9.8, true],
+  ['cycle', 'Cycle', 'Cycling', 7.5, true],
+  ['swim', 'Swim', 'Swimming', 7, true],
+  ['walk', 'Walk / hike', 'Walking', 3.8, true],
+  ['hiit', 'HIIT', 'High Intensity Interval Training', 8, false],
+  ['sport', 'Sport', 'Other', 7, false],
+  ['mobility', 'Yoga / mobility', 'Yoga', 2.5, false],
+  ['other', 'Other', 'Other', 5, false],
+];
+export const activity = (k) => ACTIVITIES.find((a) => a[0] === (k || 'strength')) || ACTIVITIES[0];
+
 // ---------- units ----------
 const LB = 2.2046226218;
 export const unit = () => store.settings.unit;

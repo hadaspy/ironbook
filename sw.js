@@ -4,13 +4,13 @@
 // - GitHub API calls (your sync): never cached.
 // Bump VERSION whenever you deploy changes.
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'ironbook-' + VERSION;
 const IMG_CACHE = 'ironbook-img';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/app.css', './css/fonts.css', './data/exercises.json',
   './js/app.js', './js/store.js', './js/sync.js', './js/calc.js', './js/exercises.js', './js/ui.js', './js/charts.js',
-  './js/timer.js', './js/ics.js', './js/seed.js',
+  './js/timer.js', './js/ics.js', './js/seed.js', './js/health.js', './js/views/log.js',
   './js/views/today.js', './js/views/plan.js', './js/views/library.js', './js/views/progress.js', './js/views/profile.js', './js/views/workout.js',
   './fonts/barlow-0.woff2', './fonts/barlow-1.woff2', './fonts/barlow-2.woff2', './fonts/barlow-3.woff2',
   './fonts/barlow-condensed-4.woff2', './fonts/barlow-condensed-5.woff2', './fonts/dm-sans-6.woff2', './fonts/inter-7.woff2',

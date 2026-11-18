@@ -57,7 +57,7 @@ function calendar(body) {
   </div>
   <div class="grid2"><div class="card stat"><div class="eyebrow">Workouts this month</div><div class="big">${monthSessions}</div></div>
     <div class="card stat"><div class="eyebrow">Planned</div><div class="big">${monthPlanned}</div></div></div>
-  <p class="muted small pad-x">Tap a day to see what you did, start its workout, move it or mark it as rest.</p>`;
+  <p class="muted small pad-x">Tap a day to see what you did, start its workout, move it, mark it as rest, or log a custom workout.</p>`;
   body.onclick = (e) => {
     const m = e.target.closest('[data-m]');
     if (m) { monthOffset = m.dataset.m === '0' ? 0 : monthOffset + Number(m.dataset.m); return calendar(body); }
@@ -82,7 +82,9 @@ function daySheet(date, refresh) {
       <select id="ov"><option value="">${p.source === 'program' || p.source === 'none' ? 'Keep training plan' : 'Back to training plan'}</option><option value="__rest">Rest day</option>
       ${plans.map((x) => `<option value="${x.id}" ${p.source === 'override' && x.id === p.planId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
       ${plan && isFuture ? `<button class="btn ghost block" data-a="move">${icon.swap} Move ${esc(plan.name)} to another day</button>` : ''}` : ''}
-    ${!done.length && !isFuture ? `<button class="btn ghost block" data-a="log">${icon.plus} Log a past workout for this day</button>` : ''}`, { onClose: refresh });
+    ${k <= dayKey(new Date()) ? `<button class="btn ${done.length || plan ? 'ghost' : ''} block" data-a="custom">${icon.edit} Log a custom workout${done.length ? ' (another one)' : ''}</button>
+      <p class="muted small center">Anything outside your plans: a run, a sport, or exercises you pick yourself.</p>` : ''}
+    ${!done.length && !isFuture ? `<button class="btn ghost block" data-a="log">${icon.plus} Log one of your workout plans for this day</button>` : ''}`, { onClose: refresh });
   $('#ov', s.el)?.addEventListener('change', (e) => {
     const v = e.target.value;
     if (!v) { if (store.get('overrides', k)) store.remove('overrides', k); }
@@ -104,6 +106,7 @@ function daySheet(date, refresh) {
       };
     }
     if (b.dataset.a === 'log') { s.close(); logPast(date); }
+    if (b.dataset.a === 'custom') { s.close(); go('log/new/' + k); }
   });
 }
 

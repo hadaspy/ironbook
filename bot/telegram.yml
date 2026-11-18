@@ -1,0 +1,47 @@
+# Copy this file to .github/workflows/telegram.yml in your PRIVATE data repo (e.g. yourname/workout-data).
+# It runs the Ironbook Telegram bot about once an hour. The bot code comes from the public app repo,
+# your data and the bot token never leave your private repo.
+# Needs two repo secrets: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (README → Telegram bot).
+name: Telegram
+
+on:
+  schedule:
+    - cron: '7 * * * *'   # every hour at :07 (GitHub may start it a few minutes late)
+  workflow_dispatch:
+    inputs:
+      send:
+        description: Send a message now
+        type: choice
+        options: [test, today, recap, week, month]
+        default: test
+
+permissions:
+  contents: write   # to save bot/state.json (what was already sent)
+
+concurrency: telegram
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: hadaspy/ironbook
+          path: .ironbook
+      - name: Run bot
+        run: node .ironbook/bot/telegram.mjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND: ${{ inputs.send }}
+      - name: Save bot state
+        run: |
+          if [ -n "$(git status --porcelain bot/state.json)" ]; then
+            git config user.name "ironbook-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add bot/state.json
+            git commit -m "Bot: update sent-messages state" -q
+            git pull --rebase -q && git push -q
+          fi

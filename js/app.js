@@ -11,6 +11,7 @@ import * as library from './views/library.js';
 import * as progress from './views/progress.js';
 import * as profile from './views/profile.js';
 import * as workout from './views/workout.js';
+import * as log from './views/log.js';
 
 // route name → [module, render function name, tab]
 const ROUTES = {
@@ -23,6 +24,7 @@ const ROUTES = {
   me: [profile, 'render', 'me'],
   workout: [workout, 'render', null],
   session: [workout, 'renderSession', 'progress'],
+  log: [log, 'render', 'plan'],
 };
 const TABS = [['today', 'Today', icon.today], ['plan', 'Plan', icon.plan], ['exercises', 'Exercises', icon.lib], ['progress', 'Progress', icon.progress], ['me', 'Profile', icon.me]];
 
@@ -132,6 +134,8 @@ async function boot() {
   route();
   if (store.active?.rest) timer.loop();
   if (!store.settings.onboarded) onboarding();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (tz && store.settings.tz !== tz) store.setSettings({ tz });
   startAutoSync();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
   document.documentElement.classList.toggle('standalone', matchMedia('(display-mode: standalone)').matches || navigator.standalone === true);

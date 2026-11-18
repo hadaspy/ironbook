@@ -4,7 +4,7 @@ import { icon, esc, empty } from '../ui.js';
 import { ring } from '../charts.js';
 import {
   plannedFor, sessionsOn, weekStart, addDays, dayKey, DOW, fmtDate, compareWeeks, pct, fmtVol, unit, fmtW,
-  weekStreak, sessionStats, fmtDuration, goalProgress, sessions, rangeSummary,
+  weekStreak, sessionStats, fmtDuration, goalProgress, sessions, rangeSummary, activity,
 } from '../calc.js';
 import { startWorkout, choosePlanAndStart } from './workout.js';
 
@@ -37,7 +37,7 @@ export function render(root) {
   } else if (doneToday.length) {
     const st = doneToday.map(sessionStats).reduce((a, b) => ({ volume: a.volume + b.volume, sets: a.sets + b.sets, duration: a.duration + b.duration }));
     hero = `<div class="hero done"><div class="eyebrow on-ac">Done today ${icon.check}</div><div class="hero-t">${esc(doneToday.map((s) => s.name).join(' + '))}</div>
-      <div class="hero-meta"><span>${fmtVol(st.volume)} ${unit()} lifted</span><span>${st.sets} sets</span><span>${fmtDuration(st.duration)}</span></div>
+      <div class="hero-meta">${st.sets ? `<span>${fmtVol(st.volume)} ${unit()} lifted</span><span>${st.sets} sets</span>` : `<span>${esc([...new Set(doneToday.map((x) => activity(x.activity)[1]))].join(' + '))}</span>`}<span>${fmtDuration(st.duration)}</span></div>
       <a class="btn on-hero" href="#session/${doneToday[doneToday.length - 1].id}">See summary</a></div>`;
   } else if (plan) {
     const sets = plan.items.reduce((a, i) => a + i.sets, 0);
@@ -120,7 +120,7 @@ export function sessionRow(s) {
   const d = new Date(s.startedAt);
   return `<a class="row-item" href="#session/${s.id}"><div class="date-badge"><b>${d.getDate()}</b><span>${d.toLocaleDateString(undefined, { month: 'short' })}</span></div>
     <div class="grow min0"><div class="ellipsis"><b>${esc(s.name)}</b>${s.sample ? ' <span class="chip neutral">sample</span>' : ''}</div>
-    <div class="muted small">${fmtDuration(st.duration)} · ${st.sets} sets · ${fmtVol(st.volume)} ${unit()}${s.prs ? ` · <span class="pr-t">${s.prs} PR${s.prs > 1 ? 's' : ''}</span>` : ''}</div></div>${icon.chev}</a>`;
+    <div class="muted small">${fmtDuration(st.duration)} · ${st.sets || !s.activity || s.activity === 'strength' ? `${st.sets} sets · ${fmtVol(st.volume)} ${unit()}` : esc(activity(s.activity)[1]) + (s.distanceKm ? ` · ${s.distanceKm} km` : '')}${s.prs ? ` · <span class="pr-t">${s.prs} PR${s.prs > 1 ? 's' : ''}</span>` : ''}</div></div>${icon.chev}</a>`;
 }
 
 export { rangeSummary };

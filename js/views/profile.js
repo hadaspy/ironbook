@@ -35,6 +35,21 @@ export function render(root) {
         <button class="btn block" id="sync-edit">${icon.cloud} Set up GitHub backup</button>`}
     </div>
 
+    <div class="card"><div class="row between"><div class="eyebrow">Telegram</div><input type="checkbox" class="switch" id="tg-on" aria-label="Telegram messages" ${st.tgOn ? 'checked' : ''}></div>
+      <p class="small muted">Reminders, a recap after each workout, and weekly and monthly progress reports from your own Telegram bot. ${cfg ? 'The bot reads your private backup, so changes here reach it on the next sync.' : '<b>Connect the GitHub backup first</b>: the bot reads your data from it.'} One-time setup: README → <i>Telegram bot</i>.</p>
+      <div class="tg-sub" id="tg-sub" ${st.tgOn ? '' : 'hidden'}>
+        <div class="set-row"><label for="tg-daily">Reminder on training days</label><span class="row gap-s"><input type="time" id="tg-dt" class="w-auto" value="${esc(st.tgDailyTime)}" aria-label="Reminder time"><input type="checkbox" class="switch" id="tg-daily" ${st.tgDaily ? 'checked' : ''}></span></div>
+        <div class="set-row"><label for="tg-recap">Recap after each workout</label><input type="checkbox" class="switch" id="tg-recap" ${st.tgRecap ? 'checked' : ''}></div>
+        <div class="set-row"><label for="tg-weekly">Weekly report</label><span class="row gap-s"><select id="tg-wd" class="w-auto" aria-label="Report day">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => `<option value="${i}" ${i === st.tgWeeklyDay ? 'selected' : ''}>${d}</option>`).join('')}</select><input type="time" id="tg-wt" class="w-auto" value="${esc(st.tgWeeklyTime)}" aria-label="Report time"><input type="checkbox" class="switch" id="tg-weekly" ${st.tgWeekly ? 'checked' : ''}></span></div>
+        <div class="set-row"><label for="tg-monthly">Monthly progress (on the 1st)</label><input type="checkbox" class="switch" id="tg-monthly" ${st.tgMonthly ? 'checked' : ''}></div>
+        <p class="muted small">Time zone: ${esc(st.tz || 'unknown')}. GitHub runs the bot about once an hour, so messages can arrive up to an hour after the time you set.</p>
+      </div></div>
+
+    <div class="card"><div class="row between"><div class="eyebrow">Apple Health</div><input type="checkbox" class="switch" id="h-on" aria-label="Apple Health button" ${st.healthOn ? 'checked' : ''}></div>
+      <p class="small muted">Web apps can’t talk to Health directly. Turn this on to get a <b>Save to Apple Health</b> button after each workout, which hands it to a shortcut you build once in the Shortcuts app (README → <i>Apple Health</i>).</p>
+      ${st.healthOn ? `<div class="set-row"><label for="h-name">Shortcut name</label><input id="h-name" class="w-auto" value="${esc(st.healthShortcut)}" autocapitalize="off" spellcheck="false"></div>` : ''}
+    </div>
+
     <div class="card"><div class="eyebrow">Data</div>
       <p class="small muted">${n} workout${n === 1 ? '' : 's'} · ${store.all('plans').length} workout plans · ${store.all('goals').length} goals</p>
       <div class="list flat">
@@ -56,6 +71,17 @@ export function render(root) {
   $('#s-auto', root).onchange = (e) => store.setSettings({ autoRest: e.target.checked });
   $('#s-sound', root).onchange = (e) => store.setSettings({ sound: e.target.checked });
   $('#s-bar', root).onchange = (e) => store.setSettings({ bar: Number(e.target.value) });
+
+  $('#tg-on', root).onchange = (e) => { store.setSettings({ tgOn: e.target.checked }); if (e.target.checked && !cfg) toast('Next: connect the GitHub backup above, then follow the README to create the bot.', { ms: 5000 }); };
+  $('#tg-daily', root).onchange = (e) => store.setSettings({ tgDaily: e.target.checked });
+  $('#tg-dt', root).onchange = (e) => e.target.value && store.setSettings({ tgDailyTime: e.target.value });
+  $('#tg-recap', root).onchange = (e) => store.setSettings({ tgRecap: e.target.checked });
+  $('#tg-weekly', root).onchange = (e) => store.setSettings({ tgWeekly: e.target.checked });
+  $('#tg-wd', root).onchange = (e) => store.setSettings({ tgWeeklyDay: Number(e.target.value) });
+  $('#tg-wt', root).onchange = (e) => e.target.value && store.setSettings({ tgWeeklyTime: e.target.value });
+  $('#tg-monthly', root).onchange = (e) => store.setSettings({ tgMonthly: e.target.checked });
+  $('#h-on', root).onchange = (e) => store.setSettings({ healthOn: e.target.checked });
+  $('#h-name', root)?.addEventListener('change', (e) => store.setSettings({ healthShortcut: e.target.value.trim() || 'Ironbook to Health' }));
 
   $('#sync-edit', root).onclick = () => syncSheet();
   $('#sync-now', root)?.addEventListener('click', async () => { const ok = await syncNow(); toast(ok ? 'Synced' : esc(syncState.message), { kind: ok ? '' : 'bad', ms: ok ? 2000 : 6000 }); });

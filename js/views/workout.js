@@ -4,8 +4,9 @@ import { icon, esc, sheet, toast, confirmSheet, $, $$ } from '../ui.js';
 import { timer, keepAwake } from '../timer.js';
 import {
   lastPerformance, personalBests, e1rm, fmtW, toDisplay, toKg, unit, fmtClock, fmtDuration, sessionStats, fmtVol,
-  platesFor, round, sessions, pct, isWorkSet, fmtDate,
+  platesFor, round, sessions, pct, isWorkSet, fmtDate, dayKey, activity,
 } from '../calc.js';
+import { healthEnabled, sendToHealth } from '../health.js';
 import { pickExercises, exerciseInfoSheet } from './library.js';
 import { go } from '../app.js';
 import { syncNow } from '../sync.js';
@@ -47,8 +48,12 @@ export function choosePlanAndStart() {
   const plans = store.all('plans').sort((a, b) => a.name.localeCompare(b.name));
   const s = sheet(`<h3 class="sheet-title">Start a workout</h3>
     <div class="list">${plans.map((p) => `<button class="row-item" data-p="${p.id}"><span class="dot-c c-${p.color || 'a'}"></span><div class="grow min0"><b>${esc(p.name)}</b><div class="muted small">${p.items.length} exercises</div></div>${icon.play}</button>`).join('')}
-    <button class="row-item" data-p=""><span class="dot-c"></span><div class="grow"><b>Empty workout</b><div class="muted small">Add exercises as you go</div></div>${icon.plus}</button></div>`, { tall: true });
-  s.el.addEventListener('click', (e) => { const b = e.target.closest('[data-p]'); if (!b) return; s.close(); startWorkout(b.dataset.p || null); });
+    <button class="row-item" data-p=""><span class="dot-c"></span><div class="grow"><b>Empty workout</b><div class="muted small">Add exercises as you go</div></div>${icon.plus}</button>
+    <button class="row-item" data-log><span class="dot-c"></span><div class="grow"><b>Log a finished workout</b><div class="muted small">A run, a sport, or sets you already did</div></div>${icon.edit}</button></div>`, { tall: true });
+  s.el.addEventListener('click', (e) => {
+    if (e.target.closest('[data-log]')) { s.close(); return go('log/new/' + dayKey()); }
+    const b = e.target.closest('[data-p]'); if (!b) return; s.close(); startWorkout(b.dataset.p || null);
+  });
 }
 
 // ---------- live screen ----------
@@ -304,14 +309,16 @@ function summarySheet(s) {
   const pst = prev ? sessionStats(prev) : null;
   const vp = pst ? pct(st.volume, pst.volume) : null;
   const prSets = s.exercises.flatMap((e) => e.sets.filter((x) => x.pr).map((x) => ({ e, x })));
-  sheet(`<div class="summary"><div class="trophy-big ${prSets.length ? '' : 'ok'}">${prSets.length ? icon.trophy : icon.check}</div>
+  const sh = sheet(`<div class="summary"><div class="trophy-big ${prSets.length ? '' : 'ok'}">${prSets.length ? icon.trophy : icon.check}</div>
     <h3 class="sheet-title center">Workout complete</h3><p class="muted center">${esc(s.name)} · ${fmtDuration(st.duration)}</p>
     <div class="grid3"><div class="card stat"><div class="eyebrow">Volume</div><div class="big sm">${fmtVol(st.volume)}</div><div class="muted small">${unit()}</div></div>
       <div class="card stat"><div class="eyebrow">Sets</div><div class="big sm">${st.sets}</div><div class="muted small">${st.reps} reps</div></div>
       <div class="card stat"><div class="eyebrow">PRs</div><div class="big sm">${prSets.length}</div><div class="muted small">records</div></div></div>
     ${vp != null ? `<p class="center">${vp >= 0 ? '▲' : '▼'} <b>${Math.abs(vp).toFixed(1)}%</b> volume vs last ${esc(s.name)} (${fmtDate(new Date(prev.startedAt), { day: 'numeric', month: 'short' })})</p>` : ''}
     ${prSets.length ? `<div class="list">${prSets.map(({ e, x }) => `<div class="row-item"><span class="pr-t">${icon.trophy}</span><span class="grow">${esc(getEx(e.exId).name)}</span><b>${fmtW(x.w)} × ${x.r}</b></div>`).join('')}</div>` : ''}
+    ${healthEnabled() ? `<button class="btn ghost block" id="to-health">${icon.up} Save to Apple Health</button>` : ''}
     <button class="btn block" data-close>Done</button></div>`);
+  sh.el.querySelector('#to-health')?.addEventListener('click', () => { sh.close(); sendToHealth(store.get('sessions', s.id)); });
 }
 
 // ---------- past session ----------
@@ -323,9 +330,15 @@ export function renderSession(root, id) {
     <div class="grow"><div class="eyebrow">${fmtDate(new Date(s.startedAt), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div><h1 class="h1">${esc(s.name)}</h1></div>
     <button class="icon-btn" id="menu" aria-label="Options">${icon.more}</button></header>
   <section class="stack">
-    <div class="grid3"><div class="card stat"><div class="eyebrow">Time</div><div class="big sm">${fmtDuration(st.duration)}</div></div>
+    ${st.sets || !s.activity || s.activity === 'strength' ? `<div class="grid3"><div class="card stat"><div class="eyebrow">Time</div><div class="big sm">${fmtDuration(st.duration)}</div></div>
       <div class="card stat"><div class="eyebrow">Volume</div><div class="big sm">${fmtVol(st.volume)}</div><div class="muted small">${unit()}</div></div>
-      <div class="card stat"><div class="eyebrow">Sets</div><div class="big sm">${st.sets}</div></div></div>
+      <div class="card stat"><div class="eyebrow">Sets</div><div class="big sm">${st.sets}</div></div></div>`
+    : `<div class="grid3"><div class="card stat"><div class="eyebrow">Time</div><div class="big sm">${fmtDuration(st.duration)}</div></div>
+      <div class="card stat"><div class="eyebrow">Distance</div><div class="big sm">${s.distanceKm ? s.distanceKm : '–'}</div><div class="muted small">km</div></div>
+      <div class="card stat"><div class="eyebrow">Calories</div><div class="big sm">${s.calories || '–'}</div><div class="muted small">kcal</div></div></div>`}
+    ${s.kind === 'custom' || s.effort || s.healthAt ? `<div class="act-meta pad-x">${s.kind === 'custom' ? `<span class="chip">${icon.edit} Custom log</span>` : ''}<span class="chip">${esc(activity(s.activity)[1])}</span>
+      ${st.sets && s.distanceKm ? `<span class="chip">${s.distanceKm} km</span>` : ''}${st.sets && s.calories ? `<span class="chip">${s.calories} kcal</span>` : ''}
+      ${s.effort ? `<span class="chip">Effort ${s.effort}/10</span>` : ''}${s.healthAt ? `<span class="chip good">${icon.check} Sent to Health</span>` : ''}</div>` : ''}
     ${s.notes ? `<div class="card muted">${icon.note} ${esc(s.notes)}</div>` : ''}
     ${s.exercises.map((e) => `<div class="card"><a class="ex-name" href="#exercise/${encodeURIComponent(e.exId)}">${esc(getEx(e.exId).name)}</a>
       <table class="tbl"><tbody>${e.sets.map((x, j) => `<tr class="${x.type}"><td class="muted">${x.type === 'warmup' ? 'W' : j + 1}</td><td><b>${fmtW(x.w)}</b> × ${x.r}</td><td class="right muted small">e1RM ${fmtW(e1rm(x.w, x.r))}</td><td class="right">${x.pr ? `<span class="pr-t">${icon.trophy}</span>` : ''}</td></tr>`).join('')}</tbody></table>
@@ -334,7 +347,8 @@ export function renderSession(root, id) {
   $('#menu', root).onclick = () => {
     const m = sheet(`<h3 class="sheet-title">${esc(s.name)}</h3><div class="list">
       <button class="row-item" data-m="again">${icon.play}<span class="grow">Repeat this workout</span></button>
-      <button class="row-item" data-m="rename">${icon.edit}<span class="grow">Rename / edit notes</span></button>
+      <button class="row-item" data-m="edit">${icon.edit}<span class="grow">Edit workout</span></button>
+      ${healthEnabled() ? `<button class="row-item" data-m="health">${icon.up}<span class="grow">${s.healthAt ? 'Send to Apple Health again' : 'Save to Apple Health'}</span></button>` : ''}
       <button class="row-item danger" data-m="del">${icon.trash}<span class="grow">Delete workout</span></button></div>`);
     m.el.onclick = async (e) => {
       const b = e.target.closest('[data-m]'); if (!b) return; m.close();
@@ -345,10 +359,8 @@ export function renderSession(root, id) {
         go('workout');
       }
       if (b.dataset.m === 'del' && await confirmSheet('Delete this workout?', 'It will be removed from your history and charts.', { ok: 'Delete', danger: true })) { store.remove('sessions', s.id); go('progress/history'); }
-      if (b.dataset.m === 'rename') {
-        const r = sheet(`<h3 class="sheet-title">Edit workout</h3><label class="lbl">Name</label><input id="nm" value="${esc(s.name)}"><label class="lbl">Notes</label><textarea id="nt" rows="3">${esc(s.notes || '')}</textarea><button class="btn block" id="ok">Save</button>`);
-        $('#ok', r.el).onclick = () => { store.put('sessions', { ...s, name: $('#nm', r.el).value.trim() || s.name, notes: $('#nt', r.el).value }); r.close(); };
-      }
+      if (b.dataset.m === 'edit') go('log/' + s.id);
+      if (b.dataset.m === 'health') sendToHealth(s);
     };
   };
 }
