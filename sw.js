@@ -4,7 +4,7 @@
 // - GitHub API calls (your sync): never cached.
 // Bump VERSION whenever you deploy changes.
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = 'ironbook-' + VERSION;
 const IMG_CACHE = 'ironbook-img';
 const APP_FILES = [

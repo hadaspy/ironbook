@@ -461,3 +461,4 @@ body.rest-flash { animation: flash 1.2s; }
 .list { border-radius: var(--r); }
 .lg.missed { background: color-mix(in srgb, var(--bad) 45%, transparent) !important; }
 [data-theme="lime"] .ex .ex-name { color: var(--tx); }
+.card > .row > svg { width: 22px; height: 22px; color: var(--ac); }

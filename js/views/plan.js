@@ -144,7 +144,7 @@ function schedule(body) {
           <select data-idx="${idx}"><option value="">Rest</option>${plans.map((x) => `<option value="${x.id}" ${x.id === id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`; }).join('')}</div>`).join('')}
       <div class="row gap-s wrap"><label class="lbl inline" for="start">Cycle starts week of</label><input type="date" id="start" class="w-auto" value="${p.startDate}"></div>
     </div>
-    <div class="card"><div class="row gap">${icon.bell}<div class="grow"><b>Reminders on your iPhone</b><div class="muted small">Adds your workout days to the Calendar app with an alert. Re-export after changing the plan.</div></div></div>
+    <div class="card"><div class="row gap">${icon.bell}<div class="grow min0"><b>Calendar reminders</b><div class="muted small">Add your workout days to the iPhone Calendar with an alert. Export again after changing the plan.</div></div></div>
       <div class="row gap-s wrap"><label class="lbl inline" for="rt">Time</label><input type="time" id="rt" class="w-auto" value="${store.settings.reminderTime}">
       <select id="al" class="w-auto"><option value="0">Alert at start</option><option value="15">15 min before</option><option value="30" selected>30 min before</option><option value="60">1 h before</option></select></div>
       <button class="btn ghost block" data-a="ics">${icon.plan} Export to Calendar</button></div>
