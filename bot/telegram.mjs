@@ -44,7 +44,10 @@ async function main() {
     return;
   }
 
-  if (!existsSync(DATA_FILE)) { console.log(`${DATA_FILE} not found. Connect the app's GitHub backup first.`); return; }
+  if (!existsSync(DATA_FILE)) {
+    if (SEND === 'test') { await send('✅ <b>Ironbook bot connected</b>\nNext: connect the GitHub backup in the app (Profile → Backup &amp; sync), then switch on Profile → Telegram.'); console.log('Sent: test (no backup yet)'); return; }
+    console.log(`${DATA_FILE} not found. Connect the app's GitHub backup first.`); return;
+  }
   const data = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
   const st = data.settings || {};
   const state = existsSync(STATE_FILE) ? JSON.parse(readFileSync(STATE_FILE, 'utf8')) : {};
