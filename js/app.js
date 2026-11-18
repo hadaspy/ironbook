@@ -86,16 +86,16 @@ function renderBanner() {
 setInterval(() => store.active && current?.name !== 'workout' && renderBanner(), 1000);
 
 export function applyTheme() {
-  const t = store.settings.theme || 'ember';
+  const t = store.settings.theme || 'lime';
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem('ironbook-theme', t); } catch { /* ignore */ }
   const color = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color || '#16130F');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color || '#0D110E');
 }
 
 // ---------- first run ----------
 function onboarding() {
-  let days = 4, unit = 'kg', theme = store.settings.theme || 'ember';
+  let days = 4, unit = 'kg', theme = store.settings.theme || 'lime';
   const s = sheet(`
     <h3 class="sheet-title">Set up your training</h3>
     <p class="muted">You can change everything later. This picks a starter plan you can edit.</p>
@@ -119,10 +119,10 @@ function onboarding() {
   segs('#ob-days', (v) => { days = Number(v); upd(); });
   segs('#ob-unit', (v) => (unit = v));
   segs('#ob-theme', (v) => { theme = v; document.documentElement.dataset.theme = v; });
-  $('#ob-go', el).onclick = () => { setupStarter(days); store.setSettings({ unit, theme, onboarded: true, weeklyTarget: days }); s.close(); go('today'); };
-  $('#ob-skip', el).onclick = () => { store.setSettings({ unit, theme, onboarded: true }); s.close(); };
+  $('#ob-go', el).onclick = () => { setupStarter(days); store.setSettings({ unit, theme, onboarded: true, limeIntro: true, weeklyTarget: days }); s.close(); go('today'); };
+  $('#ob-skip', el).onclick = () => { store.setSettings({ unit, theme, onboarded: true, limeIntro: true }); s.close(); };
 }
-export const THEMES = [['ember', 'Ember Forge'], ['glacier', 'Glacier Track'], ['plum', 'Plum Pulse']];
+export const THEMES = [['lime', 'Lime Track'], ['ember', 'Ember Forge'], ['glacier', 'Glacier Track'], ['plum', 'Plum Pulse']];
 
 // ---------- boot ----------
 async function boot() {
@@ -134,6 +134,7 @@ async function boot() {
   route();
   if (store.active?.rest) timer.loop();
   if (!store.settings.onboarded) onboarding();
+  else if (!store.settings.limeIntro) store.setSettings({ theme: 'lime', limeIntro: true }); // new default look; Profile → Look switches back
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (tz && store.settings.tz !== tz) store.setSettings({ tz });
   startAutoSync();

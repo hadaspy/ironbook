@@ -4,7 +4,7 @@
 // - GitHub API calls (your sync): never cached.
 // Bump VERSION whenever you deploy changes.
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = 'ironbook-' + VERSION;
 const IMG_CACHE = 'ironbook-img';
 const APP_FILES = [
@@ -14,7 +14,7 @@ const APP_FILES = [
   './js/views/today.js', './js/views/plan.js', './js/views/library.js', './js/views/progress.js', './js/views/profile.js', './js/views/workout.js',
   './fonts/barlow-0.woff2', './fonts/barlow-1.woff2', './fonts/barlow-2.woff2', './fonts/barlow-3.woff2',
   './fonts/barlow-condensed-4.woff2', './fonts/barlow-condensed-5.woff2', './fonts/dm-sans-6.woff2', './fonts/inter-7.woff2',
-  './fonts/sora-8.woff2', './fonts/unbounded-9.woff2',
+  './fonts/sora-8.woff2', './fonts/unbounded-9.woff2', './fonts/plus-jakarta-sans.woff2',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 

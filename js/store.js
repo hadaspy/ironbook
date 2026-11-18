@@ -9,7 +9,7 @@ const COLS = ['plans', 'programs', 'sessions', 'overrides', 'goals', 'body', 'cu
 
 export const DEFAULT_SETTINGS = {
   unit: 'kg',            // 'kg' | 'lb' — weights are always stored in kg
-  theme: 'ember',        // 'ember' | 'glacier' | 'plum'
+  theme: 'lime',         // 'lime' | 'ember' | 'glacier' | 'plum'
   defaultRest: 90,       // seconds
   autoRest: true,        // start the rest timer when a set is ticked
   sound: true,
@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   reminderTime: '07:00', // used in the calendar export
   name: '',
   onboarded: false,
+  limeIntro: false,      // one-time switch of existing installs to the Lime Track look
   tz: '',                // device time zone, so the Telegram bot sends at your local time
   // Telegram bot (runs as a GitHub Action in the private backup repo, reads this file)
   tgOn: false,
