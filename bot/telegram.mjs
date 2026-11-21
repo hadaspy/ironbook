@@ -245,7 +245,8 @@ function recapMessage(ctx, s) {
     lines.push([ACT[s.activity] || 'Workout', st.minutes ? fmtMins(st.minutes) : '', s.distanceKm ? `${s.distanceKm} km` : '', s.distanceKm && st.minutes && ['run', 'walk'].includes(s.activity) ? `${pace(st.minutes, s.distanceKm)}/km` : '', s.calories ? `${s.calories} kcal` : ''].filter(Boolean).join(' · '));
   }
   if (s.effort) lines.push(`Effort ${s.effort}/10`);
-  const prs = (s.exercises || []).flatMap((e) => e.sets.filter((x) => x.pr).map((x) => `🏆 ${esc(ctx.ex(e.exId).name)}: ${W(ctx, x.w)} × ${x.r}`));
+  const PRL = { weight: 'heaviest ever', e1rm: 'best est. 1RM', reps: 'rep record' };
+  const prs = (s.exercises || []).flatMap((e) => e.sets.filter((x) => x.pr).map((x) => `🏆 ${esc(ctx.ex(e.exId).name)}: ${ctx.ex(e.exId).tracks === 'time' ? x.r + ' s' : `${W(ctx, x.w)} × ${x.r}`} (${PRL[x.pr] || 'PR'})`));
   if (prs.length) lines.push('', `<b>New PRs</b>`, ...prs);
   const tops = (s.exercises || []).slice(0, 8).map((e) => {
     const work = e.sets.filter(isWork); if (!work.length) return null;

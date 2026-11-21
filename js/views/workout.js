@@ -4,7 +4,7 @@ import { icon, esc, sheet, toast, confirmSheet, $, $$ } from '../ui.js';
 import { timer, keepAwake } from '../timer.js';
 import {
   lastPerformance, personalBests, e1rm, fmtW, toDisplay, toKg, unit, fmtClock, fmtDuration, sessionStats, fmtVol,
-  platesFor, round, sessions, pct, isWorkSet, fmtDate, dayKey, activity,
+  platesFor, round, sessions, pct, isWorkSet, fmtDate, dayKey, activity, lastWeight, prKind, prLabel,
 } from '../calc.js';
 import { healthEnabled, sendToHealth } from '../health.js';
 import { pickExercises, exerciseInfoSheet } from './library.js';
@@ -15,22 +15,40 @@ const num = (v) => (v === '' || v == null ? '' : String(Math.round(toDisplay(v) 
 const inc = () => (unit() === 'lb' ? 5 / 2.2046226218 : 2.5);
 
 // ---------- starting ----------
+// Weight preset for an exercise: the latest weight used on it, in this workout if already done here, else from history
+function presetWeight(exId, item) {
+  const here = (store.active?.exercises || []).filter((x) => x.exId === exId).flatMap((x) => x.sets).filter((x) => x.done && x.type !== 'warmup' && x.w);
+  if (here.length) return here[here.length - 1].w;
+  return lastWeight(exId, store.active?.id) ?? item?.weight ?? null;
+}
+
 function buildExercise(exId, item = null) {
-  const last = lastPerformance(exId);
+  const last = lastPerformance(exId, store.active?.id);
   const n = item?.sets || last?.sets.filter((s) => s.type !== 'warmup').length || 3;
   const lastWork = last?.sets.filter((s) => s.type !== 'warmup') || [];
-  // Progressive overload hint: every work set hit the top of the rep range last time → add weight
+  const preset = presetWeight(exId, item);
+  // Progressive overload hint: every work set hit the top of the rep range last time → suggest more weight
   let suggestW = null, hint = '';
   if (item && lastWork.length && item.repsMax && lastWork.every((s) => (s.r || 0) >= item.repsMax) && lastWork[0].w) {
     suggestW = Math.max(...lastWork.map((s) => s.w)) + inc();
-    hint = `You hit ${item.repsMax} reps on every set last time. Try ${fmtW(suggestW)}.`;
+    hint = `You hit ${item.repsMax} reps on every set last time. Ready for ${fmtW(suggestW)}?`;
   }
   const sets = Array.from({ length: n }, (_, i) => {
     const prev = lastWork[i] || lastWork[lastWork.length - 1];
-    const w = suggestW ?? prev?.w ?? item?.weight ?? null;
-    return { w: null, r: null, done: false, type: 'normal', pw: w, pr: item ? (item.repsMin === item.repsMax ? item.repsMin : item.repsMax) : prev?.r ?? null };
+    return { w: null, r: null, done: false, type: 'normal', pw: preset, pr: item ? (item.repsMin === item.repsMax ? item.repsMin : item.repsMax) : prev?.r ?? null };
   });
-  return { exId, rest: item?.rest ?? store.settings.defaultRest, repsMin: item?.repsMin ?? null, repsMax: item?.repsMax ?? null, note: item?.note || '', hint, sets };
+  return { exId, rest: item?.rest ?? store.settings.defaultRest, repsMin: item?.repsMin ?? null, repsMax: item?.repsMax ?? null, note: item?.note || '', hint, suggestW, sets };
+}
+
+// Carry a weight forward: later unticked sets (of this exercise, wherever it appears in the workout) that you
+// haven't typed a weight into get it as their preset.
+function carryWeight(exId, w, fromEx, fromJ) {
+  if (w == null) return;
+  const list = store.active.exercises, from = list.indexOf(fromEx);
+  list.forEach((ex, i) => {
+    if (ex.exId !== exId || i < from) return;
+    ex.sets.forEach((s, j) => { if ((i > from || j > fromJ) && !s.done && s.w == null && s.type !== 'warmup') s.pw = w; });
+  });
 }
 
 export function startWorkout(planId, { name } = {}) {
@@ -107,7 +125,7 @@ function exCard(ex, i) {
       <button class="icon-btn" data-act="menu" aria-label="Exercise options">${icon.more}</button>
     </div>
     <div class="ex-sub muted small"><span>${target}</span><button class="chip" data-act="rest">${icon.timer} ${fmtClock(ex.rest)}</button>${last ? `<span>Last: ${fmtDate(new Date(last.session.startedAt), { day: 'numeric', month: 'short' })}</span>` : ''}</div>
-    ${ex.hint ? `<div class="hint">${icon.up}<span>${esc(ex.hint)}</span></div>` : ''}
+    ${ex.hint ? `<div class="hint">${icon.up}<span class="grow">${esc(ex.hint)}</span>${ex.suggestW ? `<button class="chip on" data-act="apply-hint">Use it</button>` : ''}</div>` : ''}
     ${ex.note ? `<div class="muted small note">${icon.note} ${esc(ex.note)}</div>` : ''}
     <div class="sets">
       <span class="hd">Set</span><span class="hd">Last time</span><span class="hd">${timeBased ? 'kg' : unit()}</span><span class="hd">${timeBased ? 'sec' : 'Reps'}</span><span class="hd"></span>
@@ -178,8 +196,16 @@ function bindOnce(root) {
     const ex = a.exercises[inp.closest('.ex').dataset.i];
     const s = ex.sets[inp.dataset.j];
     const v = inp.value.replace(',', '.');
-    if (inp.dataset.f === 'w') s.w = v === '' ? null : toKg(v);
-    else s.r = v === '' ? null : parseInt(v, 10);
+    if (inp.dataset.f === 'w') {
+      s.w = v === '' ? null : toKg(v);
+      if (s.w != null && s.type !== 'warmup') {
+        carryWeight(ex.exId, s.w, ex, Number(inp.dataset.j));
+        root.querySelectorAll('.ex').forEach((card) => {
+          const e2 = a.exercises[card.dataset.i];
+          card.querySelectorAll('input[data-f="w"]').forEach((el) => { const s2 = e2.sets[el.dataset.j]; if (!s2.done && s2.w == null) el.placeholder = num(s2.pw); });
+        });
+      }
+    } else s.r = v === '' ? null : parseInt(v, 10);
     store.touchActive();
   });
   root.addEventListener('focusin', (e) => { if (e.target.matches('input.in')) setTimeout(() => e.target.select?.(), 0); });
@@ -196,6 +222,7 @@ function bindOnce(root) {
       const last = lastPerformance(ex.exId, a.id)?.sets[j]; if (!last) return;
       ex.sets[j].w = last.w; ex.sets[j].r = last.r; store.touchActive(); return draw(root);
     }
+    if (act === 'apply-hint') { ex.sets.forEach((x) => { if (!x.done && x.type !== 'warmup') x.pw = ex.suggestW; }); ex.hint = ''; store.touchActive(); toast(`Going for ${fmtW(ex.suggestW)}`); return draw(root); }
     if (act === 'add-set') { const l = ex.sets[ex.sets.length - 1]; ex.sets.push({ w: null, r: null, done: false, type: 'normal', pw: l?.w ?? l?.pw, pr: l?.r ?? l?.pr }); store.touchActive(); return draw(root); }
     if (act === 'del-set') { const k = ex.sets.findLastIndex((s) => !s.done); ex.sets.splice(k >= 0 ? k : ex.sets.length - 1, 1); store.touchActive(); return draw(root); }
     if (act === 'info') return exerciseInfoSheet(ex.exId);
@@ -211,17 +238,17 @@ function toggleDone(root, ex, j, card) {
     if (s.w == null && s.pw != null) s.w = s.pw;
     if (s.r == null && s.pr != null) s.r = s.pr;
     if (!s.r) { toast('Enter the reps first'); return; }
-    s.done = true; s.at = Date.now();
-    // PR check against history before this workout and earlier sets today
-    if (s.type !== 'warmup' && s.w) {
-      const hist = personalBests(ex.exId, store.active.startedAt);
-      const v = e1rm(s.w, s.r);
-      const todayBest = Math.max(0, ...store.active.exercises.filter((x) => x.exId === ex.exId).flatMap((x) => x.sets).filter((x) => x !== s && x.done && x.isPr).map((x) => e1rm(x.w, x.r)));
-      if (hist.e1rm > 0 && v > hist.e1rm + 0.01 && v > todayBest) {
-        s.isPr = true;
-        toast(`${icon.trophy} New PR on ${esc(getEx(ex.exId).name)}: ${fmtW(s.w)} × ${s.r}`, { kind: 'pr', ms: 3500 });
+    // PR check against history before this workout and the sets already ticked today
+    if (s.type !== 'warmup') {
+      const earlier = store.active.exercises.filter((x) => x.exId === ex.exId).flatMap((x) => x.sets).filter((x) => x !== s && x.done);
+      const kind = prKind(ex.exId, s.w, s.r, store.active.startedAt, earlier);
+      if (kind) {
+        s.isPr = kind;
+        toast(`${icon.trophy} ${prLabel(kind, ex.exId)} · ${getEx(ex.exId).tracks === 'time' ? s.r + ' s' : `${fmtW(s.w)} × ${s.r}`}`, { kind: 'pr', ms: 3000 });
       }
+      carryWeight(ex.exId, s.w, ex, j);
     }
+    s.done = true; s.at = Date.now();
     const isLastSetOfWorkout = store.active.exercises.every((x) => x.sets.every((y) => y.done));
     if (store.settings.autoRest && !isLastSetOfWorkout) {
       const next = ex.sets.find((x) => !x.done) ? getEx(ex.exId).name : (store.active.exercises.find((x) => x.sets.some((y) => !y.done)) ? 'Next: ' + getEx(store.active.exercises.find((x) => x.sets.some((y) => !y.done)).exId).name : '');
@@ -290,7 +317,7 @@ async function finish() {
   if (!doneSets) { toast('Tick at least one set before finishing'); return; }
   if (open && !(await confirmSheet('Finish workout?', `${open} set${open > 1 ? 's have' : ' has'} numbers but isn’t ticked. Unticked sets aren’t saved.`, { ok: 'Finish anyway' }))) return;
   const exercises = a.exercises
-    .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.filter((s) => s.done).map(({ w, r, type, at, isPr }) => ({ w, r, done: true, type, at, ...(isPr ? { pr: true } : {}) })) }))
+    .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.filter((s) => s.done).map(({ w, r, type, at, isPr }) => ({ w, r, done: true, type, at, ...(isPr ? { pr: isPr === true ? 'e1rm' : isPr } : {}) })) }))
     .filter((e) => e.sets.length);
   const prs = exercises.reduce((n, e) => n + e.sets.filter((s) => s.pr).length, 0);
   const session = store.put('sessions', { id: a.id, planId: a.planId, name: a.name, startedAt: a.startedAt, endedAt: Date.now(), notes: a.notes, exercises, prs }, { silent: true });
@@ -303,21 +330,28 @@ async function finish() {
   syncNow({ quiet: true });
 }
 
+const PICK = (list, seed) => list[[...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % list.length];
+
 function summarySheet(s) {
   const st = sessionStats(s);
   const prev = sessions().filter((x) => x.id !== s.id && x.startedAt < s.startedAt && (s.planId ? x.planId === s.planId : x.name === s.name)).pop();
   const pst = prev ? sessionStats(prev) : null;
-  const vp = pst ? pct(st.volume, pst.volume) : null;
+  const vp = pst && st.volume ? pct(st.volume, pst.volume) : null;
   const prSets = s.exercises.flatMap((e) => e.sets.filter((x) => x.pr).map((x) => ({ e, x })));
-  const sh = sheet(`<div class="summary"><div class="trophy-big ${prSets.length ? '' : 'ok'}">${prSets.length ? icon.trophy : icon.check}</div>
-    <h3 class="sheet-title center">Workout complete</h3><p class="muted center">${esc(s.name)} · ${fmtDuration(st.duration)}</p>
-    <div class="grid3"><div class="card stat"><div class="eyebrow">Volume</div><div class="big sm">${fmtVol(st.volume)}</div><div class="muted small">${unit()}</div></div>
-      <div class="card stat"><div class="eyebrow">Sets</div><div class="big sm">${st.sets}</div><div class="muted small">${st.reps} reps</div></div>
-      <div class="card stat"><div class="eyebrow">PRs</div><div class="big sm">${prSets.length}</div><div class="muted small">records</div></div></div>
-    ${vp != null ? `<p class="center">${vp >= 0 ? '▲' : '▼'} <b>${Math.abs(vp).toFixed(1)}%</b> volume vs last ${esc(s.name)} (${fmtDate(new Date(prev.startedAt), { day: 'numeric', month: 'short' })})</p>` : ''}
-    ${prSets.length ? `<div class="list">${prSets.map(({ e, x }) => `<div class="row-item"><span class="pr-t">${icon.trophy}</span><span class="grow">${esc(getEx(e.exId).name)}</span><b>${fmtW(x.w)} × ${x.r}</b></div>`).join('')}</div>` : ''}
-    ${healthEnabled() ? `<button class="btn ghost block" id="to-health">${icon.up} Save to Apple Health</button>` : ''}
-    <button class="btn block" data-close>Done</button></div>`);
+  const title = prSets.length ? PICK(['New PR unlocked!', 'Records were harmed', 'Stronger than ever', 'Personal best, baby'], s.id)
+    : vp != null && vp >= 2 ? PICK(['Leveled up', 'More than last time', 'Moving the needle'], s.id)
+    : PICK(['Done and dusted', 'Another one in the bank', 'Showed up. That counts.', 'Sweat: deposited'], s.id);
+  const confetti = prSets.length ? `<div class="confetti" aria-hidden="true">${Array.from({ length: 26 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 7) * 0.06}s;--r:${(i * 53) % 360}deg;--c:var(--${['ac', 'pr', 'c-b', 'c-d', 'c-f'][i % 5]})"></i>`).join('')}</div>` : '';
+  const sh = sheet(`<div class="summary">${confetti}
+    <div class="sum-head"><div class="sum-badge ${prSets.length ? 'pr' : ''}">${prSets.length ? icon.trophy : icon.check}</div>
+      <div class="min0"><h3 class="sheet-title">${title}</h3><div class="muted small ellipsis">${esc(s.name)} · ${fmtDuration(st.duration)}</div></div></div>
+    <div class="sum-chips">
+      ${st.sets ? `<span class="chip big">${fmtVol(st.volume)} ${unit()} lifted</span><span class="chip big">${st.sets} sets · ${st.reps} reps</span>` : ''}
+      ${vp != null ? `<span class="chip big ${vp >= 0.5 ? 'good' : vp <= -0.5 ? 'bad' : ''}">${vp >= 0 ? '▲' : '▼'} ${Math.abs(vp).toFixed(Math.abs(vp) < 10 ? 1 : 0)}% vs last time</span>` : ''}
+    </div>
+    ${prSets.length ? `<div class="sum-prs">${s.exercises.filter((e) => e.sets.some((x) => x.pr)).map((e) => `<div class="sum-pr"><span class="pr-t">${icon.trophy}</span><div class="grow min0"><b class="ellipsis">${esc(getEx(e.exId).name)}</b>
+      <div class="sum-pr-sets">${e.sets.filter((x) => x.pr).map((x) => `<span>${getEx(e.exId).tracks === 'time' ? x.r + ' s' : `${fmtW(x.w)} × ${x.r}`} <i>${prLabel(x.pr, e.exId)}</i></span>`).join('')}</div></div></div>`).join('')}</div>` : ''}
+    <div class="row gap-s">${healthEnabled() ? `<button class="btn ghost" id="to-health" aria-label="Save to Apple Health">${icon.up} Health</button>` : ''}<button class="btn grow" data-close>${PICK(['Nice!', 'Let’s go', 'Heck yes', 'Done'], s.id + 'b')}</button></div></div>`);
   sh.el.querySelector('#to-health')?.addEventListener('click', () => { sh.close(); sendToHealth(store.get('sessions', s.id)); });
 }
 
@@ -341,7 +375,7 @@ export function renderSession(root, id) {
       ${s.effort ? `<span class="chip">Effort ${s.effort}/10</span>` : ''}${s.healthAt ? `<span class="chip good">${icon.check} Sent to Health</span>` : ''}</div>` : ''}
     ${s.notes ? `<div class="card muted">${icon.note} ${esc(s.notes)}</div>` : ''}
     ${s.exercises.map((e) => `<div class="card"><a class="ex-name" href="#exercise/${encodeURIComponent(e.exId)}">${esc(getEx(e.exId).name)}</a>
-      <table class="tbl"><tbody>${e.sets.map((x, j) => `<tr class="${x.type}"><td class="muted">${x.type === 'warmup' ? 'W' : j + 1}</td><td><b>${fmtW(x.w)}</b> × ${x.r}</td><td class="right muted small">e1RM ${fmtW(e1rm(x.w, x.r))}</td><td class="right">${x.pr ? `<span class="pr-t">${icon.trophy}</span>` : ''}</td></tr>`).join('')}</tbody></table>
+      <table class="tbl"><tbody>${e.sets.map((x, j) => `<tr class="${x.type}"><td class="muted">${x.type === 'warmup' ? 'W' : j + 1}</td><td><b>${fmtW(x.w)}</b> × ${x.r}</td><td class="right muted small">e1RM ${fmtW(e1rm(x.w, x.r))}</td><td class="right">${x.pr ? `<span class="pr-t" title="${prLabel(x.pr, e.exId)}">${icon.trophy}</span>` : ''}</td></tr>`).join('')}</tbody></table>
       ${e.note ? `<div class="muted small">${esc(e.note)}</div>` : ''}</div>`).join('')}
   </section>`;
   $('#menu', root).onclick = () => {

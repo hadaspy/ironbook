@@ -113,6 +113,32 @@ export function lastPerformance(exId, excludeSessionId) {
   return null;
 }
 
+// The weight you used most recently on an exercise: the last ticked work set of the latest session.
+// It becomes the preset for every set the next time (and for later sets within the same workout).
+export function lastWeight(exId, excludeSessionId) {
+  const lp = lastPerformance(exId, excludeSessionId);
+  const work = (lp?.sets || []).filter((x) => x.type !== 'warmup' && x.w);
+  return work.length ? work[work.length - 1].w : null;
+}
+
+// What kind of personal record a set is, compared with every work set logged before `beforeTs`
+// plus `earlier` sets from the same workout. 'weight' = heaviest ever, 'e1rm' = best estimated 1RM,
+// 'reps' = most reps (or seconds) at this weight or heavier. First time doing an exercise: no PR.
+export function prKind(exId, w, r, beforeTs, earlier = []) {
+  if (!r) return null;
+  w = w || 0;
+  const prior = [];
+  for (const h of exerciseHistory(exId)) if (h.session.startedAt < beforeTs) prior.push(...h.sets);
+  prior.push(...earlier.filter((x) => x.done && x.type !== 'warmup' && x.r));
+  if (!prior.length) return null;
+  if (w > Math.max(...prior.map((x) => x.w || 0)) + 0.01) return 'weight';
+  if (w && e1rm(w, r) > Math.max(...prior.map((x) => e1rm(x.w || 0, x.r))) + 0.01) return 'e1rm';
+  const atW = prior.filter((x) => (x.w || 0) >= w - 0.01);
+  if (atW.length && r > Math.max(...atW.map((x) => x.r || 0))) return 'reps';
+  return null;
+}
+export const prLabel = (kind, exId) => ({ weight: 'Heaviest ever', e1rm: 'Best est. 1RM', reps: getEx(exId).tracks === 'time' ? 'Longest hold' : 'Rep record' }[kind] || 'PR');
+
 export function personalBests(exId, beforeTs = Infinity) {
   let e = 0, w = 0, reps = 0;
   for (const h of exerciseHistory(exId)) {

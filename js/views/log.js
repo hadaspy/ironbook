@@ -3,7 +3,7 @@
 import { store, uid } from '../store.js';
 import { getEx } from '../exercises.js';
 import { icon, esc, toast, confirmSheet, $ } from '../ui.js';
-import { dayKey, parseDay, pad, unit, toKg, toDisplay, personalBests, e1rm, fmtDate, ACTIVITIES, activity } from '../calc.js';
+import { dayKey, parseDay, pad, unit, toKg, toDisplay, prKind, lastWeight, fmtDate, ACTIVITIES, activity } from '../calc.js';
 import { pickExercises } from './library.js';
 import { go } from '../app.js';
 import { syncNow } from '../sync.js';
@@ -11,6 +11,11 @@ import { syncNow } from '../sync.js';
 
 const DRAFT_KEY = 'ironbook-log-draft';
 const num = (v) => (v == null || v === '' ? '' : String(Math.round(toDisplay(v) * 100) / 100));
+// Preset weight for set j: the last weight typed above it in this log, else the latest weight used on the exercise
+const presetFor = (ex, j, sessionId) => {
+  for (let k = j - 1; k >= 0; k--) if (ex.sets[k].w != null && ex.sets[k].type !== 'warmup') return ex.sets[k].w;
+  return lastWeight(ex.exId, sessionId);
+};
 
 function fromSession(s) {
   const d = new Date(s.startedAt);
@@ -88,7 +93,7 @@ export function render(root, arg) {
         ${ex.sets.map((s, j) => {
           const n = ex.sets.slice(0, j + 1).filter((x) => x.type !== 'warmup').length;
           return `<button class="set-n ${s.type}" data-x="type" data-j="${j}" aria-label="Set type">${s.type === 'warmup' ? 'W' : s.type === 'drop' ? 'D' : s.type === 'fail' ? 'F' : n}</button>
-          <input class="in" inputmode="decimal" data-f="w" data-j="${j}" value="${num(s.w)}" placeholder="${timeBased ? '–' : '0'}" aria-label="Weight">
+          <input class="in" inputmode="decimal" data-f="w" data-j="${j}" value="${num(s.w)}" placeholder="${timeBased ? '–' : num(presetFor(ex, j, d.id)) || '0'}" aria-label="Weight">
           <input class="in" inputmode="numeric" data-f="r" data-j="${j}" value="${s.r ?? ''}" placeholder="${timeBased ? '30' : '10'}" aria-label="${timeBased ? 'Seconds' : 'Reps'}">
           <button class="icon-btn" data-x="rm-set" data-j="${j}" aria-label="Remove set">${icon.minus}</button>`;
         }).join('')}
@@ -105,7 +110,10 @@ export function render(root, arg) {
       const ex = d.exercises[t.closest('.ex').dataset.i];
       const s = ex.sets[t.dataset.j];
       const v = t.value.replace(',', '.');
-      if (t.dataset.f === 'w') s.w = v === '' ? null : toKg(v); else s.r = v === '' ? null : parseInt(v, 10) || null;
+      if (t.dataset.f === 'w') {
+        s.w = v === '' ? null : toKg(v);
+        if (getEx(ex.exId).tracks !== 'time') t.closest('.ex').querySelectorAll('input[data-f="w"]').forEach((el) => { const j = Number(el.dataset.j); if (ex.sets[j].w == null) el.placeholder = num(presetFor(ex, j, d.id)) || '0'; });
+      } else s.r = v === '' ? null : parseInt(v, 10) || null;
     }
     saveDraft(d);
   });
@@ -147,16 +155,18 @@ export function render(root, arg) {
     if (start > Date.now() + 60000) return toast('That time is in the future. Plan it in the calendar instead.');
     const minutes = Math.max(0, parseInt(d.minutes, 10) || 0);
     const exercises = d.exercises
-      .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.filter((s) => s.r).map((s) => ({ w: s.w ?? null, r: s.r, done: true, type: s.type || 'normal' })) }))
+      .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.map((s, j) => ({ s, j })).filter(({ s }) => s.r).map(({ s, j }) => ({ w: s.w ?? (getEx(e.exId).tracks === 'time' || s.type === 'warmup' ? null : presetFor(e, j, d.id)), r: s.r, done: true, type: s.type || 'normal' })) }))
       .filter((e) => e.sets.length);
     if (!exercises.length && !minutes) return toast(d.exercises.length ? 'Fill in the reps of at least one set' : 'Add exercises or enter how many minutes it took');
-    // Mark PRs against everything logged before this workout
+    // Mark PRs (heavier, better est. 1RM, or more reps at a weight) against everything logged before this workout
     let prs = 0;
     for (const e of exercises) {
-      const hist = personalBests(e.exId, +start);
-      let best = null;
-      for (const s of e.sets) if (s.type !== 'warmup' && s.w && (!best || e1rm(s.w, s.r) > e1rm(best.w, best.r))) best = s;
-      if (best && hist.e1rm > 0 && e1rm(best.w, best.r) > hist.e1rm + 0.01) { best.pr = true; prs++; }
+      const earlier = [];
+      for (const s of e.sets) {
+        const kind = s.type !== 'warmup' ? prKind(e.exId, s.w, s.r, +start, [...exercises.filter((x) => x.exId === e.exId && x !== e).flatMap((x) => x.sets), ...earlier]) : null;
+        if (kind) { s.pr = kind; prs++; }
+        earlier.push(s);
+      }
     }
     const act = activity(d.activity);
     const existing = d.id ? store.get('sessions', d.id) : null;
