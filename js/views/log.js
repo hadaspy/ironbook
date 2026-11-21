@@ -158,7 +158,7 @@ export function render(root, arg) {
       .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.map((s, j) => ({ s, j })).filter(({ s }) => s.r).map(({ s, j }) => ({ w: s.w ?? (getEx(e.exId).tracks === 'time' || s.type === 'warmup' ? null : presetFor(e, j, d.id)), r: s.r, done: true, type: s.type || 'normal' })) }))
       .filter((e) => e.sets.length);
     if (!exercises.length && !minutes) return toast(d.exercises.length ? 'Fill in the reps of at least one set' : 'Add exercises or enter how many minutes it took');
-    // Mark PRs (heavier, better est. 1RM, or more reps at a weight) against everything logged before this workout
+    // Mark PRs (heavier than ever, or more reps at a weight than ever) against everything logged before this workout
     let prs = 0;
     for (const e of exercises) {
       const earlier = [];

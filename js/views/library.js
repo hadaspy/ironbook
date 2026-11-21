@@ -63,7 +63,7 @@ export function renderDetail(root, id) {
   const ex = getEx(id);
   const hist = exerciseHistory(id);
   const pb = personalBests(id);
-  const series = exerciseSeries(id, 'week', 12, 'e1rm').map((p) => ({ label: p.label, value: p.value == null ? null : +toUnit(p.value).toFixed(1) }));
+  const series = exerciseSeries(id, 'week', 12, 'max').map((p) => ({ label: p.label, value: p.value == null ? null : +toUnit(p.value).toFixed(1) }));
   root.innerHTML = `<header class="top"><a href="javascript:history.back()" class="icon-btn" aria-label="Back">${icon.back}</a>
     <div class="grow min0"><div class="eyebrow">${cap(ex.category)} · ${cap(ex.level || '')}</div><h1 class="h1 sm">${esc(ex.name)}</h1></div>
     ${ex.custom ? `<button class="icon-btn" id="edit" aria-label="Edit">${icon.edit}</button>` : ''}</header>
@@ -71,10 +71,10 @@ export function renderDetail(root, id) {
     ${ex.images.length ? `<div class="demo">${ex.images.map((src, i) => `<img src="${src}" alt="${esc(ex.name)} position ${i + 1}" class="${i === 0 ? 'on' : ''}">`).join('')}</div>` : ''}
     <div class="chips">${ex.primary.map((m) => `<span class="chip on">${cap(m)}</span>`).join('')}${ex.secondary.map((m) => `<span class="chip">${cap(m)}</span>`).join('')}<span class="chip">${cap(ex.equipment)}</span>${ex.mechanic ? `<span class="chip">${cap(ex.mechanic)}</span>` : ''}</div>
     ${hist.length ? `<div class="grid3">
-      <div class="card stat"><div class="eyebrow">Best e1RM</div><div class="big sm">${fmtW(pb.e1rm, false)}</div><div class="muted small">${unit()}</div></div>
+      <div class="card stat"><div class="eyebrow">Most reps</div><div class="big sm">${pb.maxReps}</div><div class="muted small">in a set</div></div>
       <div class="card stat"><div class="eyebrow">Heaviest</div><div class="big sm">${fmtW(pb.maxW, false)}</div><div class="muted small">${unit()}</div></div>
       <div class="card stat"><div class="eyebrow">Sessions</div><div class="big sm">${hist.length}</div><div class="muted small">logged</div></div></div>
-      <div class="card"><div class="eyebrow">Estimated 1-rep max · 12 weeks</div>${lineChart(series, { unit: '' })}</div>
+      <div class="card"><div class="eyebrow">Heaviest weight · 12 weeks</div>${lineChart(series, { unit: '' })}</div>
       <div class="card"><div class="eyebrow">Recent</div><table class="tbl"><tbody>${hist.slice(-6).reverse().map((h) => `<tr><td class="muted small">${fmtDate(h.date, { day: 'numeric', month: 'short' })}</td><td>${h.sets.map((s) => `${fmtW(s.w, false)}×${s.r}`).join(', ')}</td><td class="right small muted">${fmtVol(h.volume)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ex.steps.length ? `<div class="card"><div class="eyebrow">How to</div><ol class="steps">${ex.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>` : ''}
     ${ex.notes ? `<div class="card"><div class="eyebrow">Notes</div><p>${esc(ex.notes)}</p></div>` : ''}

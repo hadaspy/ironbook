@@ -86,7 +86,7 @@ function renderBanner() {
 setInterval(() => store.active && current?.name !== 'workout' && renderBanner(), 1000);
 
 export function applyTheme() {
-  const t = store.settings.theme || 'lime';
+  const t = THEMES.some(([k]) => k === store.settings.theme) ? store.settings.theme : 'lime'; // retired themes fall back to Lime
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem('ironbook-theme', t); } catch { /* ignore */ }
   const color = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
@@ -122,7 +122,7 @@ function onboarding() {
   $('#ob-go', el).onclick = () => { setupStarter(days); store.setSettings({ unit, theme, onboarded: true, limeIntro: true, weeklyTarget: days }); s.close(); go('today'); };
   $('#ob-skip', el).onclick = () => { store.setSettings({ unit, theme, onboarded: true, limeIntro: true }); s.close(); };
 }
-export const THEMES = [['lime', 'Lime Track'], ['ember', 'Ember Forge'], ['glacier', 'Glacier Track'], ['plum', 'Plum Pulse']];
+export const THEMES = [['lime', 'Lime Track'], ['glacier', 'Glacier Track']];
 
 // ---------- boot ----------
 async function boot() {
@@ -130,6 +130,11 @@ async function boot() {
   applyTheme();
   try { await loadLibrary(); } catch (e) { console.error(e); }
   window.addEventListener('hashchange', () => route());
+  // Save everything the moment the app is hidden or closed (iOS may kill a backgrounded web app without warning)
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') store.flush(); });
+  window.addEventListener('pagehide', () => store.flush());
+  // Reopened mid-workout: go straight back into it
+  if (store.active && ['', '#', '#today'].includes(location.hash)) history.replaceState(null, '', '#workout');
   document.addEventListener('pointerdown', unlockAudio, { passive: true });
   route();
   if (store.active?.rest) timer.loop();

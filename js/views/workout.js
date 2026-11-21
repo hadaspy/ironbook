@@ -3,8 +3,8 @@ import { getEx } from '../exercises.js';
 import { icon, esc, sheet, toast, confirmSheet, $, $$ } from '../ui.js';
 import { timer, keepAwake } from '../timer.js';
 import {
-  lastPerformance, personalBests, e1rm, fmtW, toDisplay, toKg, unit, fmtClock, fmtDuration, sessionStats, fmtVol,
-  platesFor, round, sessions, pct, isWorkSet, fmtDate, dayKey, activity, lastWeight, prKind, prLabel,
+  lastPerformance, fmtW, toDisplay, toKg, unit, fmtClock, fmtDuration, sessionStats, fmtVol,
+  platesFor, round, sessions, pct, isWorkSet, fmtDate, dayKey, activity, lastWeight, prKind, prLabel, workoutInsights,
 } from '../calc.js';
 import { healthEnabled, sendToHealth } from '../health.js';
 import { pickExercises, exerciseInfoSheet } from './library.js';
@@ -145,6 +145,14 @@ function exCard(ex, i) {
   </article>`;
 }
 
+// Hand the remaining rest to a shortcut that starts the iOS Clock timer (rings even when the phone is locked)
+function startClockTimer(sec) {
+  if (sec < 5) return toast('Rest is almost over');
+  const name = store.settings.clockShortcut || 'Ironbook Rest';
+  store.flush();
+  location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}&input=text&text=${sec}`;
+}
+
 function drawTimer(root) {
   const dock = $('#rest-dock', root);
   if (!dock) return;
@@ -157,8 +165,12 @@ function drawTimer(root) {
     dock.className = 'rest-dock';
     dock.innerHTML = `<div class="rd-ring"><svg viewBox="0 0 52 52" width="52" height="52"><circle cx="26" cy="26" r="22" class="ring-bg" stroke-width="5"/><circle cx="26" cy="26" r="22" class="ring-fg" id="rd-arc" stroke-width="5" stroke-dasharray="${c}" transform="rotate(-90 26 26)"/></svg></div>
       <div class="grow"><div class="eyebrow">Rest</div><div class="rd-time mono" id="rd-time"></div><div class="muted small ellipsis" id="rd-label"></div></div>
-      <button class="icon-btn pill" data-t="-15">−15</button><button class="icon-btn pill" data-t="15">+15</button><button class="btn small" data-t="skip">Skip</button>`;
-    dock.onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; b.dataset.t === 'skip' ? timer.stop() : timer.add(Number(b.dataset.t)); };
+      ${store.settings.clockTimer ? `<button class="icon-btn pill" data-t="clock" aria-label="Start iPhone Clock timer">${icon.bell}</button>` : ''}<button class="icon-btn pill" data-t="-15">−15</button><button class="icon-btn pill" data-t="15">+15</button><button class="btn small" data-t="skip">Skip</button>`;
+    dock.onclick = (e) => {
+      const b = e.target.closest('[data-t]'); if (!b) return;
+      if (b.dataset.t === 'clock') return startClockTimer(Math.round(timer.remaining()));
+      b.dataset.t === 'skip' ? timer.stop() : timer.add(Number(b.dataset.t));
+    };
   }
   $('#rd-time', dock).textContent = rem > 0 ? fmtClock(rem) : 'Go!';
   $('#rd-label', dock).textContent = r.label || '';
@@ -278,13 +290,20 @@ function platesSheet(ex) {
   const s0 = ex.sets.find((s) => !s.done) || ex.sets[ex.sets.length - 1];
   const kg = s0?.w ?? s0?.pw ?? 60;
   const render = (w) => {
-    const { per, rest } = platesFor(w, store.settings.bar, store.settings.plates);
-    return `<div class="bar-viz">${[...per].reverse().map((p) => `<i class="pl" style="--h:${30 + p * 2.4}px">${p}</i>`).join('')}<span class="bar-shaft"></span>${per.map((p) => `<i class="pl" style="--h:${30 + p * 2.4}px">${p}</i>`).join('')}</div>
-      <p class="center"><b>${per.length ? per.join(' + ') : 'Just the bar'}</b> per side${rest ? `<br><span class="muted small">${rest} kg can’t be made with your plates</span>` : ''}</p>`;
+    const bar = store.settings.bar, plates = store.settings.plates;
+    const { per, rest } = platesFor(w, bar, plates);
+    return `<div class="bar-viz">${[...per].reverse().map((p) => `<i class="pl" style="--h:${30 + Math.min(p, 25) * 2.4}px">${p}</i>`).join('')}<span class="bar-shaft"></span>${per.map((p) => `<i class="pl" style="--h:${30 + Math.min(p, 25) * 2.4}px">${p}</i>`).join('')}</div>
+      <p class="center"><b>${per.length ? per.join(' + ') : w < bar ? 'Lighter than the bar' : 'Just the bar'}</b>${per.length ? ' per side' : ''}${rest ? `<br><span class="muted small">${Math.round(rest * 100) / 100} kg can’t be made with your plates</span>` : ''}</p>`;
   };
-  const s = sheet(`<h3 class="sheet-title">Plate calculator</h3><p class="muted small">Bar ${store.settings.bar} kg · plates in kg</p>
-    <div class="row gap"><input id="pw" inputmode="decimal" value="${Math.round(kg * 100) / 100}"><span class="muted">kg total</span></div><div id="pv">${render(kg)}</div>`);
-  $('#pw', s.el).oninput = (e) => ($('#pv', s.el).innerHTML = render(Number(e.target.value.replace(',', '.')) || 0));
+  const s = sheet(`<h3 class="sheet-title">Plate calculator</h3>
+    <div class="grid2"><label><span class="lbl">Total (kg)</span><input id="pw" inputmode="decimal" value="${Math.round(kg * 100) / 100}"></label>
+      <label><span class="lbl">Bar (kg)</span><input id="pb" inputmode="decimal" value="${store.settings.bar}"></label></div>
+    <div id="pv">${render(kg)}</div>
+    <p class="muted small">Plates: ${store.settings.plates.join(', ')} kg. Change them in Profile → Training.</p>`);
+  const upd = () => ($('#pv', s.el).innerHTML = render(Number($('#pw', s.el).value.replace(',', '.')) || 0));
+  $('#pw', s.el).oninput = upd;
+  $('#pb', s.el).oninput = (e) => { const v = Number(e.target.value.replace(',', '.')); if (v >= 0) { store.settings.bar = v; upd(); } };
+  $('#pb', s.el).onchange = (e) => { const v = Number(e.target.value.replace(',', '.')); if (v >= 0) store.setSettings({ bar: v }); };
 }
 
 function exMenu(root, i) {
@@ -317,7 +336,7 @@ async function finish() {
   if (!doneSets) { toast('Tick at least one set before finishing'); return; }
   if (open && !(await confirmSheet('Finish workout?', `${open} set${open > 1 ? 's have' : ' has'} numbers but isn’t ticked. Unticked sets aren’t saved.`, { ok: 'Finish anyway' }))) return;
   const exercises = a.exercises
-    .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.filter((s) => s.done).map(({ w, r, type, at, isPr }) => ({ w, r, done: true, type, at, ...(isPr ? { pr: isPr === true ? 'e1rm' : isPr } : {}) })) }))
+    .map((e) => ({ exId: e.exId, rest: e.rest, note: e.note || '', sets: e.sets.filter((s) => s.done).map(({ w, r, type, at, isPr }) => ({ w, r, done: true, type, at, ...(isPr ? { pr: isPr } : {}) })) }))
     .filter((e) => e.sets.length);
   const prs = exercises.reduce((n, e) => n + e.sets.filter((s) => s.pr).length, 0);
   const session = store.put('sessions', { id: a.id, planId: a.planId, name: a.name, startedAt: a.startedAt, endedAt: Date.now(), notes: a.notes, exercises, prs }, { silent: true });
@@ -337,20 +356,21 @@ function summarySheet(s) {
   const prev = sessions().filter((x) => x.id !== s.id && x.startedAt < s.startedAt && (s.planId ? x.planId === s.planId : x.name === s.name)).pop();
   const pst = prev ? sessionStats(prev) : null;
   const vp = pst && st.volume ? pct(st.volume, pst.volume) : null;
-  const prSets = s.exercises.flatMap((e) => e.sets.filter((x) => x.pr).map((x) => ({ e, x })));
-  const title = prSets.length ? PICK(['New PR unlocked!', 'Records were harmed', 'Stronger than ever', 'Personal best, baby'], s.id)
-    : vp != null && vp >= 2 ? PICK(['Leveled up', 'More than last time', 'Moving the needle'], s.id)
+  const prEx = s.exercises.filter((e) => e.sets.some((x) => x.pr));
+  const { wins, next } = workoutInsights(s);
+  const title = prEx.length ? PICK(['New PR unlocked!', 'Records were harmed', 'Stronger than ever', 'Personal best, baby'], s.id)
+    : wins.length ? PICK(['Leveled up', 'Better than last time', 'Moving the needle'], s.id)
     : PICK(['Done and dusted', 'Another one in the bank', 'Showed up. That counts.', 'Sweat: deposited'], s.id);
-  const confetti = prSets.length ? `<div class="confetti" aria-hidden="true">${Array.from({ length: 26 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 7) * 0.06}s;--r:${(i * 53) % 360}deg;--c:var(--${['ac', 'pr', 'c-b', 'c-d', 'c-f'][i % 5]})"></i>`).join('')}</div>` : '';
+  const confetti = prEx.length ? `<div class="confetti" aria-hidden="true">${Array.from({ length: 26 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 7) * 0.06}s;--r:${(i * 53) % 360}deg;--c:var(--${['ac', 'pr', 'c-b', 'c-d', 'c-f'][i % 5]})"></i>`).join('')}</div>` : '';
+  const setTxt = (e, x) => (getEx(e.exId).tracks === 'time' ? x.r + ' s' : `${fmtW(x.w)} × ${x.r}`);
   const sh = sheet(`<div class="summary">${confetti}
-    <div class="sum-head"><div class="sum-badge ${prSets.length ? 'pr' : ''}">${prSets.length ? icon.trophy : icon.check}</div>
-      <div class="min0"><h3 class="sheet-title">${title}</h3><div class="muted small ellipsis">${esc(s.name)} · ${fmtDuration(st.duration)}</div></div></div>
-    <div class="sum-chips">
-      ${st.sets ? `<span class="chip big">${fmtVol(st.volume)} ${unit()} lifted</span><span class="chip big">${st.sets} sets · ${st.reps} reps</span>` : ''}
-      ${vp != null ? `<span class="chip big ${vp >= 0.5 ? 'good' : vp <= -0.5 ? 'bad' : ''}">${vp >= 0 ? '▲' : '▼'} ${Math.abs(vp).toFixed(Math.abs(vp) < 10 ? 1 : 0)}% vs last time</span>` : ''}
-    </div>
-    ${prSets.length ? `<div class="sum-prs">${s.exercises.filter((e) => e.sets.some((x) => x.pr)).map((e) => `<div class="sum-pr"><span class="pr-t">${icon.trophy}</span><div class="grow min0"><b class="ellipsis">${esc(getEx(e.exId).name)}</b>
-      <div class="sum-pr-sets">${e.sets.filter((x) => x.pr).map((x) => `<span>${getEx(e.exId).tracks === 'time' ? x.r + ' s' : `${fmtW(x.w)} × ${x.r}`} <i>${prLabel(x.pr, e.exId)}</i></span>`).join('')}</div></div></div>`).join('')}</div>` : ''}
+    <div class="sum-head"><div class="sum-badge ${prEx.length ? 'pr' : ''}">${prEx.length ? icon.trophy : icon.check}</div>
+      <div class="min0"><h3 class="sheet-title">${title}</h3><div class="muted small ellipsis">${esc(s.name)} · ${fmtDuration(st.duration)}${st.sets ? ` · ${st.sets} sets · ${fmtVol(st.volume)} ${unit()}` : ''}${vp != null ? ` · <span class="${vp >= 0.5 ? 'up' : vp <= -0.5 ? 'down' : ''}">${vp >= 0 ? '▲' : '▼'}${Math.abs(vp).toFixed(0)}%</span>` : ''}</div></div></div>
+    ${prEx.length ? `<div class="sum-sec"><div class="eyebrow">${icon.trophy} New PRs</div>${prEx.map((e) => `<div class="sum-line pr"><b class="ellipsis">${esc(getEx(e.exId).name)}</b><span class="sum-pr-sets">${e.sets.filter((x) => x.pr).map((x) => `<span>${setTxt(e, x)} <i>${prLabel(x.pr, e.exId)}</i></span>`).join('')}</span></div>`).join('')}</div>` : ''}
+    <div class="sum-sec"><div class="eyebrow">${icon.check} What went well</div>
+      ${(wins.length ? wins : [prev ? 'You showed up and got it done. That’s the hardest part.' : 'First one logged. This is your baseline to beat.']).map((t) => `<div class="sum-line win">${esc(t)}</div>`).join('')}</div>
+    <div class="sum-sec"><div class="eyebrow">${icon.up} Next session</div>
+      ${(next.length ? next : ['Same plan, one more rep on your first set.']).map((t) => `<div class="sum-line nx">${esc(t)}</div>`).join('')}</div>
     <div class="row gap-s">${healthEnabled() ? `<button class="btn ghost" id="to-health" aria-label="Save to Apple Health">${icon.up} Health</button>` : ''}<button class="btn grow" data-close>${PICK(['Nice!', 'Let’s go', 'Heck yes', 'Done'], s.id + 'b')}</button></div></div>`);
   sh.el.querySelector('#to-health')?.addEventListener('click', () => { sh.close(); sendToHealth(store.get('sessions', s.id)); });
 }
@@ -375,7 +395,7 @@ export function renderSession(root, id) {
       ${s.effort ? `<span class="chip">Effort ${s.effort}/10</span>` : ''}${s.healthAt ? `<span class="chip good">${icon.check} Sent to Health</span>` : ''}</div>` : ''}
     ${s.notes ? `<div class="card muted">${icon.note} ${esc(s.notes)}</div>` : ''}
     ${s.exercises.map((e) => `<div class="card"><a class="ex-name" href="#exercise/${encodeURIComponent(e.exId)}">${esc(getEx(e.exId).name)}</a>
-      <table class="tbl"><tbody>${e.sets.map((x, j) => `<tr class="${x.type}"><td class="muted">${x.type === 'warmup' ? 'W' : j + 1}</td><td><b>${fmtW(x.w)}</b> × ${x.r}</td><td class="right muted small">e1RM ${fmtW(e1rm(x.w, x.r))}</td><td class="right">${x.pr ? `<span class="pr-t" title="${prLabel(x.pr, e.exId)}">${icon.trophy}</span>` : ''}</td></tr>`).join('')}</tbody></table>
+      <table class="tbl"><tbody>${e.sets.map((x, j) => `<tr class="${x.type}"><td class="muted">${x.type === 'warmup' ? 'W' : j + 1}</td><td><b>${fmtW(x.w)}</b> × ${x.r}</td><td class="right muted small">${x.pr ? esc(prLabel(x.pr, e.exId)) : ''}</td><td class="right">${x.pr ? `<span class="pr-t" title="${prLabel(x.pr, e.exId)}">${icon.trophy}</span>` : ''}</td></tr>`).join('')}</tbody></table>
       ${e.note ? `<div class="muted small">${esc(e.note)}</div>` : ''}</div>`).join('')}
   </section>`;
   $('#menu', root).onclick = () => {

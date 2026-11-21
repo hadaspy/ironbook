@@ -146,7 +146,6 @@ function plannedFor(ctx, key) {
   return id ? ctx.plans.get(id) || null : null;
 }
 
-const e1rm = (w, r) => (!w || !r ? 0 : r === 1 ? w : w * (1 + Math.min(r, 12) / 30));
 const isWork = (s) => s.done !== false && s.type !== 'warmup';
 const W = (ctx, kg) => { if (kg == null) return '–'; const v = ctx.lb ? kg * 2.2046226218 : kg; return `${Math.round(v * 10) / 10} ${ctx.lb ? 'lb' : 'kg'}`; };
 const volStr = (ctx, kg) => { const v = ctx.lb ? kg * 2.2046226218 : kg; return `${v >= 10000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v).toLocaleString('en-US')} ${ctx.lb ? 'lb' : 'kg'}`; };
@@ -168,15 +167,26 @@ function stats(sessions, ctx) {
 }
 const inRange = (ctx, a, b) => ctx.sessions.filter((s) => { const k = ctx.keyOf(s.startedAt); return k >= a && k < b; });
 
+// Best set per exercise: heaviest weight, then most reps at it
 function bestByExercise(ctx, sessions) {
   const out = new Map();
   for (const s of sessions) for (const e of s.exercises || []) for (const x of e.sets) {
     if (!isWork(x) || !x.w || !x.r || ctx.ex(e.exId).tracks === 'time') continue;
-    const v = e1rm(x.w, x.r), cur = out.get(e.exId);
-    if (!cur || v > cur.e1rm) out.set(e.exId, { e1rm: v, w: x.w, r: x.r });
+    const cur = out.get(e.exId);
+    if (!cur || x.w > cur.w || (x.w === cur.w && x.r > cur.r)) out.set(e.exId, { w: x.w, r: x.r });
   }
   return out;
 }
+const bestOf = (sets) => sets.filter((x) => isWork(x) && x.r).reduce((b, x) => (!b || (x.w || 0) > b.w || ((x.w || 0) === b.w && x.r > b.r) ? { w: x.w || 0, r: x.r } : b), null);
+// change between two best sets: weight first, else reps at the same weight. score sorts biggest gains first
+function change(ctx, now, prev) {
+  if (!prev) return { txt: 'new', score: 0 };
+  const dw = now.w - prev.w;
+  if (Math.abs(dw) > 0.01) return { txt: `${dw > 0 ? '+' : '−'}${W(ctx, Math.abs(dw))}`, score: dw * 10, up: dw > 0, down: dw < 0 };
+  const dr = now.r - prev.r;
+  return dr ? { txt: `${dr > 0 ? '+' : '−'}${Math.abs(dr)} rep${Math.abs(dr) > 1 ? 's' : ''}`, score: dr, up: dr > 0, down: dr < 0 } : { txt: '=', score: 0 };
+}
+const arrow = (c) => (c.up ? '▲' : c.down ? '▼' : '=');
 function lastPerformance(ctx, exId, beforeTs) {
   for (let i = ctx.sessions.length - 1; i >= 0; i--) {
     const s = ctx.sessions[i];
@@ -233,31 +243,48 @@ function dailyMessage(ctx, { force = false } = {}) {
   ]);
 }
 
+const PICK = (list, seed) => list[[...String(seed)].reduce((a, c) => a + c.charCodeAt(0), 0) % list.length];
+const PRL = { weight: 'heaviest ever', reps: 'rep record' };
+
 function recapMessage(ctx, s) {
   const st = stats([s], ctx);
   const key = ctx.keyOf(s.startedAt);
-  const prev = ctx.sessions.filter((x) => x.id !== s.id && x.startedAt < s.startedAt && (s.planId ? x.planId === s.planId : x.name === s.name)).pop();
-  const lines = [`✅ <b>${esc(s.name)}</b>${key !== ctx.today ? ` · ${prettyDay(key)}` : ''}`];
-  if (st.sets) {
-    lines.push(`${fmtMins(st.minutes)} · ${st.sets} sets · ${st.reps} reps · ${volStr(ctx, st.volume)}`);
-    if (prev) { const p = stats([prev], ctx); if (p.volume) lines.push(`Volume ${pctStr(st.volume, p.volume)} vs last time (${prettyDay(ctx.keyOf(prev.startedAt))})`); }
-  } else {
-    lines.push([ACT[s.activity] || 'Workout', st.minutes ? fmtMins(st.minutes) : '', s.distanceKm ? `${s.distanceKm} km` : '', s.distanceKm && st.minutes && ['run', 'walk'].includes(s.activity) ? `${pace(st.minutes, s.distanceKm)}/km` : '', s.calories ? `${s.calories} kcal` : ''].filter(Boolean).join(' · '));
+  const prevS = ctx.sessions.filter((x) => x.id !== s.id && x.startedAt < s.startedAt && (s.planId ? x.planId === s.planId : x.name === s.name)).pop();
+  const prEx = (s.exercises || []).filter((e) => e.sets.some((x) => x.pr));
+  const plan = s.planId ? ctx.plans.get(s.planId) : null;
+  const inc = ctx.lb ? 5 / 2.2046226218 : 2.5;
+  const wins = [], next = [];
+  if (prevS) { const p = stats([prevS], ctx); if (p.volume && st.volume > p.volume * 1.02) wins.push(`Volume up ${Math.round((st.volume / p.volume - 1) * 100)}% on last time`); }
+  for (const e of s.exercises || []) {
+    const def = ctx.ex(e.exId), work = e.sets.filter(isWork);
+    if (!work.length || def.tracks === 'time') continue;
+    const now = bestOf(work), prevSets = lastPerformance(ctx, e.exId, s.startedAt), prev = prevSets ? bestOf(prevSets) : null;
+    const item = plan?.items.find((it) => it.exId === e.exId);
+    if (item?.repsMax && now?.w && work.length >= item.sets && work.every((x) => (x.r || 0) >= item.repsMax)) next.push(`${esc(def.name)}: go for ${W(ctx, now.w + inc)}`);
+    if (!now || !prev) continue;
+    const c = change(ctx, now, prev);
+    if (c.up && !prEx.includes(e)) wins.push(`${esc(def.name)}: ${c.txt} (${W(ctx, now.w)} × ${now.r})`);
+    if (c.down && !next.some((n) => n.startsWith(esc(def.name)))) next.push(`${esc(def.name)}: back to ${W(ctx, prev.w)} × ${prev.r}`);
   }
-  if (s.effort) lines.push(`Effort ${s.effort}/10`);
-  const PRL = { weight: 'heaviest ever', e1rm: 'best est. 1RM', reps: 'rep record' };
-  const prs = (s.exercises || []).flatMap((e) => e.sets.filter((x) => x.pr).map((x) => `🏆 ${esc(ctx.ex(e.exId).name)}: ${ctx.ex(e.exId).tracks === 'time' ? x.r + ' s' : `${W(ctx, x.w)} × ${x.r}`} (${PRL[x.pr] || 'PR'})`));
-  if (prs.length) lines.push('', `<b>New PRs</b>`, ...prs);
-  const tops = (s.exercises || []).slice(0, 8).map((e) => {
-    const work = e.sets.filter(isWork); if (!work.length) return null;
-    const def = ctx.ex(e.exId);
-    return def.tracks === 'time' ? `• ${esc(def.name)}: ${work.map((x) => x.r + 's').join(', ')}` : `• ${esc(def.name)}: ${work.map((x) => `${x.w ? (ctx.lb ? Math.round(x.w * 22.046) / 10 : Math.round(x.w * 10) / 10) : 'BW'}×${x.r}`).join(', ')}`;
-  }).filter(Boolean);
-  if (tops.length) lines.push('', ...tops);
-  const ws = weekStartKey(ctx.today);
-  lines.push('', `This week: ${inRange(ctx, ws, addKey(ws, 7)).length}/${ctx.target} workouts`);
-  if (s.notes) lines.push(`📝 ${esc(s.notes)}`);
-  return lines.join('\n');
+  const skipped = (plan?.items || []).filter((it) => !(s.exercises || []).some((e) => e.exId === it.exId));
+  if (skipped.length) next.push(`Skipped: ${skipped.slice(0, 2).map((it) => esc(ctx.ex(it.exId).name)).join(', ')}`);
+  const ws = weekStartKey(ctx.today), wk = inRange(ctx, ws, addKey(ws, 7)).length;
+  if (wk === ctx.target) wins.push(`Weekly target hit: ${wk}/${ctx.target}`);
+  const head = prEx.length ? PICK(['New PR unlocked!', 'Records were harmed', 'Stronger than ever'], s.id) : wins.length ? PICK(['Leveled up', 'Better than last time'], s.id) : PICK(['Done and dusted', 'Another one in the bank', 'Showed up. That counts.'], s.id);
+  const summary = st.sets ? `${fmtMins(st.minutes)} · ${st.sets} sets · ${volStr(ctx, st.volume)}`
+    : [ACT[s.activity] || 'Workout', st.minutes ? fmtMins(st.minutes) : '', s.distanceKm ? `${s.distanceKm} km` : '', s.distanceKm && st.minutes && ['run', 'walk'].includes(s.activity) ? `${pace(st.minutes, s.distanceKm)}/km` : ''].filter(Boolean).join(' · ');
+  return lines2text([
+    `${prEx.length ? '🏆' : '✅'} <b>${head}</b>`,
+    `${esc(s.name)}${key !== ctx.today ? ` (${prettyDay(key)})` : ''} · ${summary}`,
+    prEx.length ? '' : null,
+    ...prEx.map((e) => `🏆 ${esc(ctx.ex(e.exId).name)}: ${e.sets.filter((x) => x.pr).map((x) => `${ctx.ex(e.exId).tracks === 'time' ? x.r + ' s' : `${W(ctx, x.w)} × ${x.r}`} (${PRL[x.pr] || 'personal best'})`).join(', ')}`),
+    '',
+    '<b>Went well</b>',
+    ...(wins.length ? wins.slice(0, 3) : [prevS ? 'You showed up and got it done.' : 'First one logged. Your baseline to beat.']).map((t) => `👍 ${t}`),
+    '',
+    '<b>Next session</b>',
+    ...(next.length ? next.slice(0, 3) : ['Same plan, one more rep on your first set.']).map((t) => `🎯 ${t}`),
+  ]);
 }
 const pace = (m, km) => { const sec = Math.round((m * 60) / km); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
 
@@ -268,8 +295,8 @@ function weeklyMessage(ctx) {
   let planned = 0, hit = 0;
   for (let k = start; k < end; k = addKey(k, 1)) if (plannedFor(ctx, k)) { planned++; if (ctx.sessions.some((s) => ctx.keyOf(s.startedAt) === k)) hit++; }
   const bestNow = bestByExercise(ctx, now), bestPrev = bestByExercise(ctx, ctx.sessions.filter((s) => ctx.keyOf(s.startedAt) < start && ctx.keyOf(s.startedAt) >= addKey(start, -28)));
-  const lifts = [...bestNow].filter(([id]) => bestPrev.has(id)).map(([id, v]) => ({ id, v, p: bestPrev.get(id), d: (v.e1rm - bestPrev.get(id).e1rm) / bestPrev.get(id).e1rm }))
-    .sort((x, y) => y.d - x.d).slice(0, 5);
+  const lifts = [...bestNow].filter(([id]) => bestPrev.has(id)).map(([id, v]) => ({ id, v, c: change(ctx, v, bestPrev.get(id)) }))
+    .sort((x, y) => y.c.score - x.c.score).slice(0, 5);
   const muscles = {};
   for (const s of now) for (const e of s.exercises || []) { const n = e.sets.filter(isWork).length; for (const m of ctx.ex(e.exId).primary.slice(0, 1)) muscles[m] = (muscles[m] || 0) + n; }
   const prs = now.reduce((n, s) => n + (s.prs || 0), 0);
@@ -284,7 +311,7 @@ function weeklyMessage(ctx) {
     prs ? `🏆 ${prs} new PR${prs > 1 ? 's' : ''}` : null,
     streak(ctx) ? `🔥 ${streak(ctx)}-week streak` : null,
   ];
-  if (lifts.length) L.push('', '<b>Strength (best set vs previous 4 weeks)</b>', ...lifts.map((l) => `${l.d > 0.004 ? '▲' : l.d < -0.004 ? '▼' : '='} ${esc(ctx.ex(l.id).name)}: ${W(ctx, l.v.w)}×${l.v.r} (est. 1RM ${pctStr(l.v.e1rm, l.p.e1rm)})`));
+  if (lifts.length) L.push('', '<b>Best sets vs previous 4 weeks</b>', ...lifts.map((l) => `${arrow(l.c)} ${esc(ctx.ex(l.id).name)}: ${W(ctx, l.v.w)} × ${l.v.r} (${l.c.txt})`));
   const mus = Object.entries(muscles).sort((x, y) => y[1] - x[1]);
   if (mus.length) L.push('', `<b>Sets per muscle</b>: ${mus.slice(0, 6).map(([m, n]) => `${m} ${n}`).join(' · ')}`);
   if (a.n < ctx.target) L.push('', `💡 ${ctx.target - a.n} short of your weekly target. ${next.length ? `Next up: ${esc(next[0][1].name)} on ${prettyDay(next[0][0])}.` : ''}`);
@@ -314,9 +341,9 @@ function monthlyMessage(ctx) {
     `Time ${fmtMins(a.minutes)}${a.km ? ` · ${Math.round(a.km * 10) / 10} km` : ''}`,
     `PRs: ${now.reduce((n, s) => n + (s.prs || 0), 0)}`,
   ];
-  if (lifts.length) L.push('', '<b>Strength gain (best est. 1RM vs previous month)</b>', ...lifts.map((id) => {
-    const v = bestNow.get(id), p = bestPrev.get(id);
-    return `• ${esc(ctx.ex(id).name)}: ${W(ctx, v.e1rm)}${p ? ` (${pctStr(v.e1rm, p.e1rm)})` : ' (new)'}`;
+  if (lifts.length) L.push('', '<b>Best sets vs previous month</b>', ...lifts.map((id) => {
+    const v = bestNow.get(id), c = change(ctx, v, bestPrev.get(id));
+    return `${arrow(c)} ${esc(ctx.ex(id).name)}: ${W(ctx, v.w)} × ${v.r} (${c.txt})`;
   }));
   const bw = ctx.body.filter((x) => x.date < end);
   const bwStart = ctx.body.filter((x) => x.date < start).pop() || bw.find((x) => x.date >= start);
@@ -324,7 +351,7 @@ function monthlyMessage(ctx) {
   const liftGoals = ctx.goals.filter((g) => g.type === 'lift' && g.exId);
   if (liftGoals.length) {
     const all = bestByExercise(ctx, ctx.sessions);
-    L.push('', '<b>Goals</b>', ...liftGoals.map((g) => { const cur = all.get(g.exId)?.e1rm || 0; return `🎯 ${esc(ctx.ex(g.exId).name)} ${W(ctx, cur)} / ${W(ctx, g.target)} (${Math.min(100, Math.round((cur / g.target) * 100))}%)`; }));
+    L.push('', '<b>Goals</b>', ...liftGoals.map((g) => { const cur = all.get(g.exId)?.w || 0; return `🎯 ${esc(ctx.ex(g.exId).name)} ${W(ctx, cur)} / ${W(ctx, g.target)} (${Math.min(100, Math.round((cur / g.target) * 100))}%)`; }));
   }
   return lines2text(L);
 }

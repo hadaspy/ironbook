@@ -25,7 +25,11 @@ export function render(root) {
       <div class="set-row"><label for="s-rest">Default rest</label><select id="s-rest" class="w-auto">${[30, 45, 60, 90, 120, 150, 180].map((x) => `<option value="${x}" ${x === st.defaultRest ? 'selected' : ''}>${Math.floor(x / 60)}:${String(x % 60).padStart(2, '0')}</option>`).join('')}</select></div>
       <div class="set-row"><label for="s-auto">Start rest timer when a set is ticked</label><input type="checkbox" class="switch" id="s-auto" ${st.autoRest ? 'checked' : ''}></div>
       <div class="set-row"><label for="s-sound">Beep when rest is over</label><input type="checkbox" class="switch" id="s-sound" ${st.sound ? 'checked' : ''}></div>
-      <div class="set-row"><label for="s-bar">Barbell weight (kg)</label><select id="s-bar" class="w-auto">${[20, 15, 10, 25].map((x) => `<option ${x === st.bar ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      <div class="set-row"><label for="s-bar">Barbell weight (kg)</label><input id="s-bar" class="w-auto num-in" inputmode="decimal" value="${st.bar}"></div>
+      <div class="set-row col"><label for="s-plates">Plates you have (kg, per side)</label><input id="s-plates" inputmode="decimal" value="${esc(st.plates.join(', '))}" placeholder="25, 20, 15, 10, 5, 2.5, 1.25"></div>
+      <div class="set-row"><label for="s-clock">Also start the iPhone Clock timer for rest</label><input type="checkbox" class="switch" id="s-clock" ${st.clockTimer ? 'checked' : ''}></div>
+      ${st.clockTimer ? `<div class="set-row"><label for="s-clockname">Shortcut name</label><input id="s-clockname" class="w-auto" value="${esc(st.clockShortcut)}" autocapitalize="off" spellcheck="false"></div>
+      <p class="muted small">Needs a one-time shortcut (README → <i>iPhone Clock timer</i>). The rest bar then gets a clock button that starts a real Clock timer, which rings even when the phone is locked.</p>` : ''}
     </div>
 
     <div class="card"><div class="row between"><div class="eyebrow">Backup &amp; sync</div><span class="sync-dot ${cfg ? syncState.status : 'off'}" id="sync-status">${cfg ? esc(syncState.message || 'Connected') : 'Off'}</span></div>
@@ -70,7 +74,14 @@ export function render(root) {
   $('#s-rest', root).onchange = (e) => store.setSettings({ defaultRest: Number(e.target.value) });
   $('#s-auto', root).onchange = (e) => store.setSettings({ autoRest: e.target.checked });
   $('#s-sound', root).onchange = (e) => store.setSettings({ sound: e.target.checked });
-  $('#s-bar', root).onchange = (e) => store.setSettings({ bar: Number(e.target.value) });
+  $('#s-bar', root).onchange = (e) => { const v = Number(e.target.value.replace(',', '.')); if (v >= 0 && v < 100) store.setSettings({ bar: v }); else toast('Enter the bar weight in kg, e.g. 20'); };
+  $('#s-plates', root).onchange = (e) => {
+    const list = [...new Set(e.target.value.split(/[,;\s]+/).map((x) => Number(x.replace(',', '.'))).filter((x) => x > 0 && x < 100))].sort((a, b) => b - a);
+    if (!list.length) return toast('Enter plate weights, e.g. 25, 20, 10, 5, 2.5');
+    store.setSettings({ plates: list });
+  };
+  $('#s-clock', root).onchange = (e) => store.setSettings({ clockTimer: e.target.checked });
+  $('#s-clockname', root)?.addEventListener('change', (e) => store.setSettings({ clockShortcut: e.target.value.trim() || 'Ironbook Rest' }));
 
   $('#tg-on', root).onchange = (e) => { store.setSettings({ tgOn: e.target.checked }); if (e.target.checked && !cfg) toast('Next: connect the GitHub backup above, then follow the README to create the bot.', { ms: 5000 }); };
   $('#tg-daily', root).onchange = (e) => store.setSettings({ tgDaily: e.target.checked });

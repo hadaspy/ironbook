@@ -9,7 +9,7 @@ const COLS = ['plans', 'programs', 'sessions', 'overrides', 'goals', 'body', 'cu
 
 export const DEFAULT_SETTINGS = {
   unit: 'kg',            // 'kg' | 'lb' — weights are always stored in kg
-  theme: 'lime',         // 'lime' | 'ember' | 'glacier' | 'plum'
+  theme: 'lime',         // 'lime' | 'glacier'
   defaultRest: 90,       // seconds
   autoRest: true,        // start the rest timer when a set is ticked
   sound: true,
@@ -27,12 +27,21 @@ export const DEFAULT_SETTINGS = {
   tgRecap: true,                         // summary after each logged workout
   tgWeekly: true, tgWeeklyDay: 6, tgWeeklyTime: '20:00', // 0 = Monday … 6 = Sunday
   tgMonthly: true,                       // on the 1st, at the weekly report time
+  // iPhone Clock timer via Shortcuts (rest timer that rings when locked)
+  clockTimer: false, clockShortcut: 'Ironbook Rest',
   // Apple Health via Shortcuts
   healthOn: false, healthShortcut: 'Ironbook to Health',
   updatedAt: 0,
 };
 
 const now = () => Date.now();
+const ACTIVE_KEY = 'ironbook-active';
+function mirrorActive(a) {
+  try {
+    if (a) { a.touchedAt = Date.now(); localStorage.setItem(ACTIVE_KEY, JSON.stringify(a)); }
+    else { localStorage.setItem(ACTIVE_KEY, 'null'); localStorage.setItem(ACTIVE_KEY + '-at', String(Date.now())); }
+  } catch { /* storage full or blocked: the database copy still applies */ }
+}
 export const uid = () => now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 function emptyState() {
@@ -86,6 +95,13 @@ export const store = {
       const base = emptyState();
       this.state = { ...base, ...saved, settings: { ...DEFAULT_SETTINGS, ...saved.settings }, col: { ...base.col, ...saved.col } };
     }
+    // The workout in progress is also mirrored synchronously to its own key on every change, so it survives
+    // the app being closed or killed before the (debounced) database write happened. Newest copy wins.
+    try {
+      const mirror = localStorage.getItem(ACTIVE_KEY);
+      if (mirror === 'null') { if (this.state.active && (this.state.active.touchedAt || 0) <= Number(localStorage.getItem(ACTIVE_KEY + '-at') || 0)) this.state.active = null; }
+      else if (mirror) { const m = JSON.parse(mirror); if (!this.state.active || (m.touchedAt || 0) >= (this.state.active.touchedAt || 0)) this.state.active = m; }
+    } catch { /* ignore */ }
     try { await navigator.storage?.persist?.(); } catch { /* not supported */ }
   },
 
@@ -139,8 +155,9 @@ export const store = {
 
   // ----- the workout in progress (device-only, never synced) -----
   get active() { return this.state.active; },
-  setActive(a) { this.state.active = a; this.emit(false); },
-  touchActive() { this.save(); },
+  setActive(a) { this.state.active = a; mirrorActive(a); this.emit(false); this.save(true); },
+  touchActive() { mirrorActive(this.state.active); this.save(); },
+  flush() { clearTimeout(saveTimer); mirrorActive(this.state.active); return this.save(true); },
 
   // ----- sync payload -----
   exportData() {

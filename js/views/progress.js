@@ -4,13 +4,13 @@ import { icon, esc, sheet, toast, segmented, empty, confirmSheet, $ } from '../u
 import { lineChart, barChart, hbars, ring, sparkline } from '../charts.js';
 import {
   volumeSeries, exerciseSeries, compareWeeks, pct, fmtW, fmtVol, unit, toDisplay, toKg, fmtDuration, sessions, exerciseHistory,
-  goalProgress, personalBests, dayKey, fmtDate, parseDay, buckets,
+  goalProgress, personalBests, dayKey, fmtDate, parseDay, buckets, setChange,
 } from '../calc.js';
-import { deltaChip, goalTitle, sessionRow } from './today.js';
+import { deltaChip, goalTitle, sessionRow, setChip } from './today.js';
 import { pickExercises } from './library.js';
 import { go } from '../app.js';
 
-const ui = { period: 'week', metric: 'e1rm', exId: null };
+const ui = { period: 'week', metric: 'max', exId: null };
 const disp = (kg) => +toDisplay(kg).toFixed(1);
 
 export function render(root, arg) {
@@ -36,34 +36,25 @@ function overview(body) {
   const allMuscles = [...new Set([...Object.keys(cmp.thisW.muscles), ...Object.keys(cmp.lastW.muscles)])].sort((a, b) => (cmp.thisW.muscles[b] || 0) - (cmp.thisW.muscles[a] || 0));
   const lastVol = vol[vol.length - 1].value, prevVol = vol[vol.length - 2].value;
   const avg = vol.slice(0, -1).filter((v) => v.value).reduce((a, v, _, arr) => a + v.value / arr.length, 0);
-  const row = (label, a, b, fmt = (x) => x, invert = false) => `<tr><td>${label}</td><td class="right"><b>${fmt(a)}</b></td><td class="right muted">${fmt(b)}</td><td class="right">${deltaChip(a, b, { invert })}</td></tr>`;
-  const recentPrs = sessions().filter((s) => s.startedAt > Date.now() - 30 * 86400000).flatMap((s) => s.exercises.flatMap((e) => e.sets.filter((x) => x.pr).map((x) => ({ s, e, x })))).reverse().slice(0, 6);
+  const tile = (label, a, b, fmt = (x) => x) => `<div class="tile"><div class="eyebrow">${label}</div><b>${fmt(a)}</b><div class="tile-f"><span class="muted small">${fmt(b)}</span>${deltaChip(a, b)}</div></div>`;
+  const recentPrs = sessions().filter((s) => s.startedAt > Date.now() - 30 * 86400000).flatMap((s) => s.exercises.flatMap((e) => e.sets.filter((x) => x.pr).map((x) => ({ s, e, x })))).reverse().slice(0, 5);
+  const liftRows = cmp.lifts.map((l) => ({ ...l, c: setChange(l.now, l.before) })).sort((a, b) => (b.c.kind === 'w' ? b.c.v * 10 : b.c.v) - (a.c.kind === 'w' ? a.c.v * 10 : a.c.v)).slice(0, 6);
 
   body.innerHTML = `
-  <div class="card"><div class="row between"><div class="eyebrow">Volume lifted</div>${periodSeg()}</div>
-    <div class="row gap baseline"><div class="big">${fmtVol(lastVol)}<span class="unit">${unit()}</span></div><span class="muted small">this ${ui.period}</span>${deltaChip(lastVol, prevVol)}</div>
-    ${barChart(vol.map((v) => ({ label: v.label, value: disp(v.value) })), { target: avg ? disp(avg) : null })}
-    <div class="muted small">Dashed line: your average of the previous ${n - 1} ${ui.period}s. ${ui.period === 'week' ? 'Current week is still in progress.' : ''}</div></div>
+  <div class="card"><div class="row between"><div class="eyebrow">Volume</div>${periodSeg()}</div>
+    <div class="row gap baseline"><div class="big">${fmtVol(lastVol)}<span class="unit">${unit()}</span></div>${deltaChip(lastVol, prevVol)}${avg ? `<span class="muted small">avg ${fmtVol(avg)} (dashed)</span>` : ''}</div>
+    ${barChart(vol.map((v) => ({ label: v.label, value: disp(v.value) })), { target: avg ? disp(avg) : null, height: 140 })}</div>
 
-  <div class="card"><div class="eyebrow">This week vs last week</div>
-    <table class="tbl cmp-t"><thead><tr><th></th><th class="right">This wk</th><th class="right">Last wk</th><th></th></tr></thead><tbody>
-      ${row('Workouts', cmp.thisW.sessions, cmp.lastW.sessions)}
-      ${row('Sets', cmp.thisW.sets, cmp.lastW.sets)}
-      ${row('Reps', cmp.thisW.reps, cmp.lastW.reps)}
-      ${row(`Volume (${unit()})`, cmp.thisW.volume, cmp.lastW.volume, fmtVol)}
-      ${row('Time', cmp.thisW.duration, cmp.lastW.duration, fmtDuration)}
-    </tbody></table>
-    <p class="muted small">By this point last week you had done ${cmp.lastToDate.sessions} workout${cmp.lastToDate.sessions === 1 ? '' : 's'} and ${fmtVol(cmp.lastToDate.volume)} ${unit()}.</p></div>
+  <div class="card"><div class="row between"><div class="eyebrow">This week vs last</div><span class="muted small">last wk by today: ${cmp.lastToDate.sessions}</span></div>
+    <div class="tiles">${tile('Workouts', cmp.thisW.sessions, cmp.lastW.sessions)}${tile('Sets', cmp.thisW.sets, cmp.lastW.sets)}${tile(`Volume`, cmp.thisW.volume, cmp.lastW.volume, fmtVol)}${tile('Time', cmp.thisW.duration, cmp.lastW.duration, fmtDuration)}</div></div>
 
-  ${allMuscles.length ? `<div class="card"><div class="row between"><div class="eyebrow">Sets per muscle group</div><div class="legend"><span><i class="lg a"></i>This wk</span><span><i class="lg b"></i>Last wk</span></div></div>
-    ${hbars(allMuscles.map((m) => ({ label: m, a: cmp.thisW.muscles[m], b: cmp.lastW.muscles[m] })))}
-    <p class="muted small">10–20 hard sets per muscle per week is a common hypertrophy range.</p></div>` : ''}
+  ${allMuscles.length ? `<div class="card"><div class="row between"><div class="eyebrow">Sets per muscle</div><div class="legend"><span><i class="lg a"></i>This</span><span><i class="lg b"></i>Last</span></div></div>
+    ${hbars(allMuscles.map((m) => ({ label: m, a: cmp.thisW.muscles[m], b: cmp.lastW.muscles[m] })))}</div>` : ''}
 
-  ${cmp.lifts.length ? `<div class="card"><div class="eyebrow">Lifts vs last week (best set, e1RM)</div><div class="list flat">
-    ${cmp.lifts.map((l) => `<a class="row-item" href="#exercise/${encodeURIComponent(l.exId)}"><div class="grow min0"><div class="ellipsis b">${esc(getEx(l.exId).name)}</div>
-      <div class="muted small">${fmtW(l.before.w)}×${l.before.r} → <b>${fmtW(l.now.w)}×${l.now.r}</b></div></div>${deltaChip(l.now.e1rm, l.before.e1rm)}</a>`).join('')}</div></div>` : ''}
+  ${liftRows.length ? `<div class="card"><div class="eyebrow">Lifts vs last week</div><div class="list flat compact">
+    ${liftRows.map((l) => `<a class="row-item" href="#exercise/${encodeURIComponent(l.exId)}"><span class="grow min0 ellipsis">${esc(getEx(l.exId).name)}</span><span class="muted small nowrap">${fmtW(l.now.w)} × ${l.now.r}</span>${setChip(l.now, l.before)}</a>`).join('')}</div></div>` : ''}
 
-  ${recentPrs.length ? `<div class="card"><div class="eyebrow">Personal records · last 30 days</div><div class="list flat">${recentPrs.map(({ s, e, x }) => `<a class="row-item" href="#session/${s.id}"><span class="pr-t">${icon.trophy}</span><span class="grow ellipsis">${esc(getEx(e.exId).name)}</span><span class="muted small">${fmtDate(new Date(s.startedAt), { day: 'numeric', month: 'short' })}</span><b>${fmtW(x.w)}×${x.r}</b></a>`).join('')}</div></div>` : ''}
+  ${recentPrs.length ? `<div class="card"><div class="eyebrow">PRs · 30 days</div><div class="list flat compact">${recentPrs.map(({ s, e, x }) => `<a class="row-item" href="#session/${s.id}"><span class="pr-t">${icon.trophy}</span><span class="grow min0 ellipsis">${esc(getEx(e.exId).name)}</span><b class="nowrap">${fmtW(x.w)} × ${x.r}</b><span class="muted small nowrap">${fmtDate(new Date(s.startedAt), { day: 'numeric', month: 'short' })}</span></a>`).join('')}</div></div>` : ''}
   ${!sessions().length ? empty('Nothing to chart yet', 'Log a workout and your charts fill in here. Want a preview? Load sample data from Profile → Data.') : ''}`;
   wirePeriod(body, () => overview(body));
 }
@@ -80,32 +71,31 @@ function lifts(body) {
   const vals = series.filter((p) => p.value != null);
   const first = vals[0]?.value, last = vals[vals.length - 1]?.value;
   const pb = personalBests(ui.exId);
-  const metricLabel = { e1rm: 'Estimated 1-rep max', max: 'Heaviest set', volume: 'Volume', reps: 'Most reps' }[ui.metric];
+  if (ui.metric === 'e1rm') ui.metric = 'max';
+  const metricLabel = { max: 'Heaviest weight', volume: 'Volume', reps: 'Most reps' }[ui.metric];
 
   // gain table across all your lifts, over the selected window
   const start = buckets(ui.period, n)[0].start;
   const gains = ids.slice(0, 12).map((id) => {
-    const h = exerciseHistory(id).filter((x) => x.best && x.best.e1rm > 0);
+    const h = exerciseHistory(id).filter((x) => x.maxW > 0);
     const inWin = h.filter((x) => x.date >= start);
     const before = h.filter((x) => x.date < start).pop() || inWin[0];
     const now = inWin[inWin.length - 1];
-    return { id, before, now, spark: inWin.map((x) => x.best.e1rm) };
+    return { id, before, now, spark: inWin.map((x) => x.maxW) };
   }).filter((g) => g.now && g.before);
 
   body.innerHTML = `<div class="card">
     <button class="picker-btn" id="ex-pick"><span class="grow ellipsis b">${esc(getEx(ui.exId).name)}</span>${icon.down}</button>
-    <div class="row between wrap gap-s">${segmented('metric', [['e1rm', 'e1RM'], ['max', 'Max'], ['volume', 'Volume'], ['reps', 'Reps']], ui.metric)}${periodSeg()}</div>
+    <div class="row between wrap gap-s">${segmented('metric', [['max', 'Weight'], ['reps', 'Reps'], ['volume', 'Volume']], ui.metric)}${periodSeg()}</div>
     <div class="row gap baseline"><div class="big">${last != null ? (ui.metric === 'reps' ? last : fmtW(last, false)) : '–'}<span class="unit">${ui.metric === 'reps' ? 'reps' : unit()}</span></div>
       ${first != null && vals.length > 1 ? deltaChip(last, first) + `<span class="muted small">over ${vals.length} ${ui.period}s</span>` : ''}</div>
     <div class="muted small">${metricLabel}, best per ${ui.period}</div>
     ${lineChart(series.map((p) => ({ label: p.label, value: p.value == null ? null : ui.metric === 'reps' ? p.value : disp(p.value) })), { zeroBased: ui.metric === 'volume' })}
-    <div class="grid3 tight"><div><div class="eyebrow">Best e1RM</div><b>${fmtW(pb.e1rm)}</b></div><div><div class="eyebrow">Heaviest</div><b>${fmtW(pb.maxW)}</b></div><div><div class="eyebrow">Sessions</div><b>${counts[ui.exId]}</b></div></div>
+    <div class="grid3 tight"><div><div class="eyebrow">Heaviest</div><b>${fmtW(pb.maxW)}</b></div><div><div class="eyebrow">Most reps</div><b>${pb.maxReps}</b></div><div><div class="eyebrow">Sessions</div><b>${counts[ui.exId]}</b></div></div>
   </div>
-  <div class="card"><div class="eyebrow">Strength gain · last ${n} ${ui.period}s</div>
-    <p class="muted small">Change in estimated 1-rep max from the start of the window to your latest session.</p>
+  <div class="card"><div class="eyebrow">Heaviest weight · last ${n} ${ui.period}s</div>
     <div class="list flat">${gains.map((g) => `<button class="row-item" data-ex="${esc(g.id)}"><div class="grow min0"><div class="ellipsis b">${esc(getEx(g.id).name)}</div>
-      <div class="muted small">${fmtW(g.before.best.e1rm)} → <b>${fmtW(g.now.best.e1rm)}</b></div></div>${sparkline(g.spark, { w: 70, h: 28 })}${deltaChip(g.now.best.e1rm, g.before.best.e1rm)}</button>`).join('')}</div>
-    <p class="muted small">e1RM uses the Epley formula: weight × (1 + reps ÷ 30). It lets sets of different rep counts be compared.</p></div>`;
+      <div class="muted small">${fmtW(g.before.maxW)} → <b>${fmtW(g.now.maxW)}</b></div></div>${sparkline(g.spark, { w: 70, h: 28 })}${deltaChip(g.now.maxW, g.before.maxW)}</button>`).join('')}</div></div>`;
   wirePeriod(body, () => lifts(body));
   body.querySelector('[data-seg="metric"]').onclick = (e) => { const b = e.target.closest('button'); if (b) { ui.metric = b.dataset.v; lifts(body); } };
   $('#ex-pick', body).onclick = () => {
@@ -147,8 +137,8 @@ function goalSheet() {
   const fields = () => {
     const f = $('#gf', el);
     if (type === 'lift') f.innerHTML = `<label class="lbl">Exercise</label><button class="picker-btn" id="gx"><span class="grow ellipsis">${exId ? esc(getEx(exId).name) : 'Choose exercise'}</span>${icon.down}</button>
-      <label class="lbl" for="gv">Target estimated 1-rep max (${unit()})</label><input id="gv" inputmode="decimal" placeholder="${unit() === 'kg' ? '100' : '225'}">
-      ${exId ? `<p class="muted small">Current best: ${fmtW(personalBests(exId).e1rm)}</p>` : ''}`;
+      <label class="lbl" for="gv">Target weight (${unit()})</label><input id="gv" inputmode="decimal" placeholder="${unit() === 'kg' ? '100' : '225'}">
+      ${exId ? `<p class="muted small">Heaviest so far: ${fmtW(personalBests(exId).maxW)}</p>` : ''}`;
     if (type === 'frequency') f.innerHTML = `<label class="lbl" for="gv">Workouts per week</label><input id="gv" inputmode="numeric" value="${store.settings.weeklyTarget}">`;
     if (type === 'volume') f.innerHTML = `<label class="lbl" for="gv">Weekly volume (${unit()})</label><input id="gv" inputmode="decimal" placeholder="15000">`;
     if (type === 'bodyweight') f.innerHTML = `<label class="lbl" for="gv">Target bodyweight (${unit()})</label><input id="gv" inputmode="decimal">`;
@@ -162,7 +152,7 @@ function goalSheet() {
     if (type === 'lift' && !exId) return toast('Choose an exercise');
     const target = type === 'frequency' ? raw : toKg(raw);
     const g = { type, target, exId, deadline: $('#gd', el).value || null };
-    if (type === 'lift') g.startValue = personalBests(exId).e1rm;
+    if (type === 'lift') g.startValue = personalBests(exId).maxW;
     if (type === 'bodyweight') { const b = store.all('body').sort((a, c) => a.date.localeCompare(c.date)).pop(); g.startValue = b?.kg ?? null; }
     if (type === 'frequency') store.setSettings({ weeklyTarget: raw });
     store.put('goals', g); s.close(); toast('Goal added');

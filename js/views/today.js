@@ -4,7 +4,7 @@ import { icon, esc, empty } from '../ui.js';
 import { ring } from '../charts.js';
 import {
   plannedFor, sessionsOn, weekStart, addDays, dayKey, DOW, fmtDate, compareWeeks, pct, fmtVol, unit, fmtW,
-  weekStreak, sessionStats, fmtDuration, goalProgress, sessions, rangeSummary, activity,
+  weekStreak, sessionStats, fmtDuration, goalProgress, sessions, rangeSummary, activity, setChange,
 } from '../calc.js';
 import { startWorkout, choosePlanAndStart } from './workout.js';
 
@@ -17,6 +17,15 @@ export function deltaChip(now, before, { suffix = '%', invert = false } = {}) {
   const up = p >= 0.5, down = p <= -0.5;
   const good = invert ? down : up;
   return `<span class="chip ${up || down ? (good ? 'good' : 'bad') : 'neutral'}">${up ? '▲' : down ? '▼' : '='} ${Math.abs(p).toFixed(Math.abs(p) < 10 ? 1 : 0)}${suffix}</span>`;
+}
+
+// "+2.5 kg" / "+2 reps" / "=" chip comparing two best sets (weight first, then reps at the same weight)
+export function setChip(now, before) {
+  const c = setChange(now, before);
+  if (c.kind === 'new') return `<span class="chip neutral">new</span>`;
+  if (!c.v) return `<span class="chip neutral">=</span>`;
+  const txt = c.kind === 'w' ? `${c.v > 0 ? '+' : '−'}${fmtW(Math.abs(c.v))}` : `${c.v > 0 ? '+' : '−'}${Math.abs(c.v)} rep${Math.abs(c.v) > 1 ? 's' : ''}`;
+  return `<span class="chip ${c.v > 0 ? 'good' : 'bad'} nowrap">${txt}</span>`;
 }
 
 export function render(root) {
@@ -69,7 +78,7 @@ export function render(root) {
   const cmp = compareWeeks(now);
   const target = store.settings.weeklyTarget || 3;
   const streak = weekStreak();
-  const lifts = cmp.lifts.map((l) => ({ ...l, p: pct(l.now.e1rm, l.before.e1rm) })).sort((a, b) => b.p - a.p).slice(0, 3);
+  const lifts = cmp.lifts.map((l) => ({ ...l, c: setChange(l.now, l.before) })).sort((a, b) => (b.c.kind === 'w' ? b.c.v * 10 : b.c.v) - (a.c.kind === 'w' ? a.c.v * 10 : a.c.v)).slice(0, 3);
   const goals = store.all('goals').slice(0, 2);
   const recent = sessions().slice(-3).reverse();
 
@@ -93,7 +102,7 @@ export function render(root) {
         <div><span class="muted small">Reps</span><b>${cmp.thisW.reps}</b><span class="muted small">last wk ${cmp.lastW.reps}</span></div>
         <div><span class="muted small">Time</span><b>${fmtDuration(cmp.thisW.duration)}</b><span class="muted small">last wk ${fmtDuration(cmp.lastW.duration)}</span></div>
       </div>
-      ${lifts.length ? `<div class="lifts">${lifts.map((l) => `<div class="row between"><span class="ellipsis">${esc(getEx(l.exId).name)}</span><span class="row gap-s"><span class="muted small">e1RM ${fmtW(l.now.e1rm)}</span>${deltaChip(l.now.e1rm, l.before.e1rm)}</span></div>`).join('')}</div>` : ''}
+      ${lifts.length ? `<div class="lifts">${lifts.map((l) => `<div class="row between"><span class="ellipsis">${esc(getEx(l.exId).name)}</span><span class="row gap-s"><span class="muted small nowrap">${fmtW(l.now.w)} × ${l.now.r}</span>${setChip(l.now, l.before)}</span></div>`).join('')}</div>` : ''}
     </a>
     ${goals.length ? `<a class="card link" href="#progress/goals"><div class="row between"><div class="eyebrow">Goals</div>${icon.chev}</div>
       ${goals.map((g) => { const p = goalProgress(g); return `<div class="goal-mini"><div class="row between"><span>${esc(goalTitle(g))}</span><b>${Math.round(p.frac * 100)}%</b></div><div class="bar"><i style="width:${p.frac * 100}%"></i></div></div>`; }).join('')}</a>` : ''}
@@ -107,7 +116,7 @@ export function render(root) {
 
 export function goalTitle(g) {
   if (g.title) return g.title;
-  if (g.type === 'lift') return `${getEx(g.exId).name}: ${fmtW(g.target)} e1RM`;
+  if (g.type === 'lift') return `${getEx(g.exId).name}: ${fmtW(g.target)}`;
   if (g.type === 'frequency') return `${g.target} workouts every week`;
   if (g.type === 'volume') return `${fmtVol(g.target)} ${unit()} weekly volume`;
   if (g.type === 'bodyweight') return `Bodyweight ${fmtW(g.target)}`;
